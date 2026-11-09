@@ -1,6 +1,17 @@
-CREATE TABLE assignments (
+CREATE TABLE IF NOT EXISTS assignments (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
     body TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS checklist_items (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    assignment_id BIGINT NOT NULL REFERENCES assignments (id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    evidence TEXT NOT NULL,
+    completed BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS checklist_items_assignment_idx
+    ON checklist_items (assignment_id, id);

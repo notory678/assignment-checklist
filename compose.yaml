@@ -25,7 +25,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checklist_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "checklist", "-d", "checklist"]
       interval: 2s

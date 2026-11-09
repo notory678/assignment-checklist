@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ assignment.title }} · 과제 체크리스트{% endblock %}
+
+{% block content %}
+<section class="intro">
+  <a class="back-link" href="{{ url_for('home') }}">← 공지 목록</a>
+  <h1>{{ assignment.title }}</h1>
+  <p>원문을 확인하며 제출 준비 항목을 추가하세요.</p>
+</section>
+
+<div class="columns detail-columns">
+  <section class="panel" aria-labelledby="notice-body-heading">
+    <h2 id="notice-body-heading">공지 원문</h2>
+    <div class="notice-copy">{{ assignment.body }}</div>
+  </section>
+
+  <section class="panel" aria-labelledby="checklist-heading">
+    <div class="panel-heading">
+      <h2 id="checklist-heading">체크리스트</h2>
+      <span class="badge">{{ completed_count }}/{{ items | length }} 완료</span>
+    </div>
+    {% if items %}
+    <ul class="checklist">
+      {% for item in items %}
+      <li class="checklist-item">
+        <form action="{{ url_for('update_completion', assignment_id=assignment.id, item_id=item.id) }}" method="post">
+          <button class="check-toggle" type="submit" name="completed"
+                  value="{{ 'false' if item.completed else 'true' }}"
+                  aria-pressed="{{ 'true' if item.completed else 'false' }}"
+                  aria-label="{{ item.title }} 완료"><span aria-hidden="true">✓</span></button>
+        </form>
+        <div class="item-content">
+          <p class="item-title">{{ item.title }}</p>
+          <p class="evidence">{{ item.evidence }}</p>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">아직 항목이 없습니다.</p>
+    {% endif %}
+
+    <h3 class="add-heading">항목 추가</h3>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <form class="fields" action="{{ url_for('save_checklist_item', assignment_id=assignment.id) }}" method="post">
+      <div>
+        <label for="item-title">항목 이름</label>
+        <input id="item-title" name="title" value="{{ title }}" maxlength="200"
+               placeholder="예: 배포 주소 준비" required>
+      </div>
+      <div>
+        <label for="evidence">근거 문구</label>
+        <textarea id="evidence" name="evidence" rows="3" aria-describedby="evidence-hint"
+                  placeholder="예: 배포 주소를 포함하세요." required>{{ evidence }}</textarea>
+        <p class="hint" id="evidence-hint">공지 원문에서 해당 문장을 그대로 복사해 주세요.</p>
+      </div>
+      <button class="primary" type="submit">항목 추가</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
