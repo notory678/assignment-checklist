@@ -6,8 +6,8 @@ services:
       PGDATABASE: checklist
       PGUSER: checklist
       PGPASSWORD: ${POSTGRES_PASSWORD:-checklist_dev}
-      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
-      AI_GATEWAY_MODEL: ${AI_GATEWAY_MODEL:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_MODEL: ${HF_MODEL:-}
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     depends_on:

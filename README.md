@@ -47,22 +47,28 @@ docker compose up --build -d --wait
 - 선택·불필요·예시·추후 안내가 포함된 문장은 기본 추출에서 제외합니다. 한 문장에 필수와 선택 조건이 섞이면 필수 항목도 누락될 수 있습니다. 문장 맥락과 표·복잡한 조건은 사용자가 원문과 비교해야 합니다.
 - 자동 추출 본문은 30,000자, 결과는 최대 40개입니다. 원문에 없는 근거는 제외하고, 검토 중 근거를 수정한 경우에도 저장 직전에 원문 일치를 다시 확인합니다. 문구 일치만으로 제목의 의미까지 검증하지는 않습니다.
 
-## 선택 사항: 실제 AI 연결
+## 선택 사항: Hugging Face API 연결
 
-기본 추출은 AI를 사용하지 않습니다. AI를 사용하려면 [AI Gateway](https://vercel.com/docs/ai-gateway/getting-started)에서 키를 준비하고 다음 순서로 설정합니다.
+기본 추출은 AI를 사용하지 않습니다. 실제 AI 추출은 [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers/index)의 Chat Completions API를 사용합니다.
 
-1. 프로젝트 폴더에서 `.env.example`을 `.env`로 복사합니다.
-2. `.env`를 로컬 편집기로 열고 `AI_GATEWAY_API_KEY`에 키를 입력합니다. 키를 채팅이나 코드에 붙여넣지 않습니다. `.env`는 Git과 Docker 빌드에 포함되지 않습니다.
-3. [모델 목록](https://ai-gateway.vercel.sh/v1/models)에서 Chat Completions와 `json_schema` 출력을 지원하는 모델을 선택하고 정확한 ID를 `AI_GATEWAY_MODEL`에 입력합니다. 모델별 요금과 계정의 사용 한도를 확인합니다.
-4. `APP_PORT=8001 docker compose up --build -d --wait`로 앱을 다시 실행합니다.
+1. [Hugging Face 토큰 설정](https://huggingface.co/settings/tokens)에서 `fine-grained` 토큰을 만들고 **Make calls to Inference Providers** 권한을 부여합니다. 접근 승인이 필요한 모델은 해당 모델의 이용 조건과 접근 권한도 확인합니다.
+2. 프로젝트 폴더에서 `.env.example`을 `.env`로 복사합니다. 기존 `.env`가 있으면 덮어쓰지 않고 아래 두 변수를 추가합니다.
+3. `.env`를 로컬 편집기로 열고 `HF_TOKEN`에 토큰을 입력합니다. 토큰을 채팅이나 코드에 붙여넣지 않습니다. `.env`는 Git과 Docker 빌드에 포함되지 않습니다.
+4. [Inference Playground](https://huggingface.co/playground)와 모델 페이지의 Inference Providers 목록에서 API로 제공되는 모델을 선택하고, 정확한 ID를 `HF_MODEL`에 입력합니다. 모델 파일이 Hub에 공개되어 있어도 API 제공 여부는 별도로 확인해야 합니다. Chat Completions와 `json_schema` 구조화 출력을 모두 지원하는 모델·제공업체를 선택합니다.
+5. `HF_MODEL`은 `조직/모델명` 형식이며, 제공업체를 고정하려면 `조직/모델명:제공업체` 형식으로 입력합니다. 구조화 출력은 모델·제공업체 조합에 따라 지원이 달라지므로 제공업체를 지정하는 편이 좋습니다. 모델별 [요금과 사용 한도](https://huggingface.co/docs/inference-providers/pricing)를 확인합니다.
+6. `APP_PORT=8001 docker compose up --build -d --wait`로 앱을 다시 실행합니다.
 
-두 값이 설정되면 버튼은 AI 추출을 사용합니다. 공지 제목과 본문이 AI Gateway를 통해 선택한 모델에 전송되며 사용 요금이 발생할 수 있습니다. 검토 화면에 **AI 추출 결과**, 추가 조언에는 **AI 제안**이 표시됩니다. 연결 실패 시 오류를 안내하고 **기본 추출 사용**을 선택할 수 있습니다. 실패를 기본 추출 성공으로 바꾸어 표시하지 않습니다.
+두 값이 설정되면 상세 화면에 **AI 자동 추출 · Hugging Face**가 표시됩니다. 이 표시는 설정 유무를 뜻하며 실제 연결 성공은 공지를 추출할 때 확인합니다. 공지 제목과 본문이 Hugging Face를 통해 선택한 모델 제공업체에 전송되며 사용 요금이 발생할 수 있습니다. 검토 화면에 **AI 추출 결과**, 추가 조언에는 **AI 제안**이 표시됩니다. 연결 실패 시 오류를 안내하고 **기본 추출 사용**을 선택할 수 있습니다. 실패를 기본 추출 성공으로 바꾸어 표시하지 않습니다.
 
-AI 응답은 [구조화 출력 문서](https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-chat-completions/structured-outputs)의 JSON Schema 형식을 사용하고 서버에서 다시 검증합니다. 실제 키가 없을 때는 연결 요청·응답 형식을 모의 응답으로 검사하며 실제 모델 품질이나 계정 권한까지 검증한 것은 아닙니다.
+요청 주소는 `https://router.huggingface.co/v1/chat/completions`입니다. AI 응답은 [Hugging Face 구조화 출력 문서](https://huggingface.co/docs/inference-providers/guides/structured-output)의 JSON Schema 형식을 사용하고 서버에서 다시 검증합니다. 실제 토큰이 없을 때는 연결 요청·응답 형식을 모의 응답으로 검사하며 실제 모델 품질이나 계정 권한까지 검증한 것은 아닙니다.
+
+이전 연결 설정인 `AI_GATEWAY_API_KEY`와 `AI_GATEWAY_MODEL`은 더 이상 사용하지 않습니다. 기존 공지, 검토 결과, 체크리스트와 완료 상태는 그대로 유지됩니다.
 
 ## 검증
 
 의존성을 설치한 Python 환경에서 `python -m unittest discover -s tests -v`로 추출과 웹 흐름 검사를 실행합니다. 웹 흐름 검사는 `CHECKLIST_TEST_URL`이 있을 때만 실행합니다. 이 검사는 해당 서버에 시험 공지를 생성하므로 별도 테스트 DB를 사용합니다.
+
+Hugging Face 응답부터 검토·저장·완료 체크까지의 DB 통합 검사는 별도 테스트 DB에 연결된 앱 컨테이너에서 `CHECKLIST_DB_TESTS=1`로 활성화합니다. 이 검사는 실제 토큰 대신 모의 API 응답을 사용하며 외부 AI 요청을 보내지 않습니다.
 
 ## 구현 순서
 

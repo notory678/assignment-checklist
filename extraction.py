@@ -1,4 +1,4 @@
-"""Notice extraction, with an offline baseline and optional AI Gateway support."""
+"""Notice extraction, with an offline baseline and optional Hugging Face API support."""
 
 import json
 import re
@@ -40,7 +40,7 @@ def normalize(text: str) -> str:
 
 
 def ai_ready() -> bool:
-    return bool(getenv("AI_GATEWAY_API_KEY", "").strip() and getenv("AI_GATEWAY_MODEL", "").strip())
+    return bool(getenv("HF_TOKEN", "").strip() and getenv("HF_MODEL", "").strip())
 
 
 DATE = re.compile(
@@ -141,21 +141,21 @@ deadline_evidence는 제출 기한과 날짜가 함께 명시된 원문만 복�
 
 def extract_ai(title: str, body: str) -> ExtractionResult:
     if not ai_ready():
-        raise ExtractionError("AI 연결 설정이 없습니다. 기본 자동 추출을 사용해 주세요.")
+        raise ExtractionError("AI 연결 설정이 없습니다. Hugging Face 토큰과 모델을 설정하거나 기본 자동 추출을 사용해 주세요.")
     payload = {
-        "model": getenv("AI_GATEWAY_MODEL").strip(),
+        "model": getenv("HF_MODEL").strip(),
         "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                      {"role": "user", "content": json.dumps({"title": title, "body": body}, ensure_ascii=False)}],
         "stream": False,
         "max_tokens": 6000,
         "response_format": {"type": "json_schema", "json_schema": {
-            "name": "notice_checklist", "schema": ModelOutput.model_json_schema(),
+            "name": "notice_checklist", "schema": ModelOutput.model_json_schema(), "strict": True,
         }},
     }
     request = Request(
-        "https://ai-gateway.vercel.sh/v1/chat/completions",
+        "https://router.huggingface.co/v1/chat/completions",
         data=json.dumps(payload).encode(),
-        headers={"Authorization": "Bearer " + getenv("AI_GATEWAY_API_KEY").strip(),
+        headers={"Authorization": "Bearer " + getenv("HF_TOKEN").strip(),
                  "Content-Type": "application/json"}, method="POST",
     )
     try:
@@ -170,15 +170,21 @@ def extract_ai(title: str, body: str) -> ExtractionResult:
     except ExtractionError:
         raise
     except HTTPError as exc:
-        if exc.code in (401, 403):
-            message = "AI 연결 권한을 확인할 수 없습니다. 서버의 API 키와 계정 설정을 확인해 주세요."
-        elif exc.code in (402, 429):
-            message = "AI 사용 한도에 도달했습니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
+        if exc.code == 401:
+            message = "Hugging Face 인증에 실패했습니다. 서버에 설정한 토큰을 확인해 주세요."
+        elif exc.code == 403:
+            message = "Hugging Face 토큰의 Inference Providers 호출 권한과 선택한 모델의 접근 권한을 확인해 주세요."
+        elif exc.code == 402:
+            message = "Hugging Face 사용 잔액 또는 계정 한도를 확인해 주세요. 기본 추출도 사용할 수 있습니다."
+        elif exc.code == 429:
+            message = "Hugging Face 요청 한도에 도달했습니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
+        elif exc.code in (400, 404, 422):
+            message = "Hugging Face 모델 설정을 확인해 주세요. 선택한 모델과 제공업체가 Chat Completions와 JSON Schema 출력을 지원해야 합니다."
         else:
-            message = "AI 요청을 처리하지 못했습니다. 모델 설정을 확인하거나 기본 추출을 사용해 주세요."
+            message = "Hugging Face 요청을 처리하지 못했습니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
         raise ExtractionError(message) from exc
     except (URLError, TimeoutError, OSError) as exc:
-        raise ExtractionError("AI 서버에 연결하지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
+        raise ExtractionError("Hugging Face 서버에 연결하지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
     except (ValueError, ValidationError, KeyError, IndexError, TypeError) as exc:
         raise ExtractionError("AI 응답을 읽지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
     return validate_output(output, body, "ai")

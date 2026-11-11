@@ -31,9 +31,13 @@
       <span class="badge">{{ completed_count }}/{{ items | length }} 완료</span>
     </div>
     <div class="extraction-box">
-      <p class="engine-label">{{ 'AI 자동 추출' if ai_ready else '기본 자동 추출 · AI 미연결' }}</p>
+      <p class="engine-label">{{ 'AI 자동 추출 · Hugging Face' if ai_ready else '기본 자동 추출 · AI 미연결' }}</p>
       <p class="hint">{{ '공지 내용을 AI로 분석합니다.' if ai_ready else '제출·준비 표현을 찾아 항목을 만듭니다.' }} 저장 전에 결과를 확인하고 수정할 수 있어요.</p>
-      {% if ai_ready %}<p class="hint">자동 생성 시 공지 제목과 본문을 연결된 AI 서비스에 전송합니다.</p>{% endif %}
+      {% if ai_ready %}
+      <p class="hint">자동 생성 시 공지 제목과 본문을 Hugging Face를 통해 선택한 모델 제공업체에 전송합니다.</p>
+      {% else %}
+      <p class="hint">Hugging Face 연결 설정 후 AI 추출을 사용할 수 있어요.</p>
+      {% endif %}
       {% if extraction_error %}<p class="error" role="alert">{{ extraction_error }}</p>{% endif %}
       <form action="{{ url_for('generate_checklist', assignment_id=assignment.id) }}" method="post" data-loading="추출 중…">
         <input type="hidden" name="engine" value="{{ 'ai' if ai_ready else 'basic' }}">
