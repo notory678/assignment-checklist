@@ -22,6 +22,9 @@ ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 
     CHECK (kind IN ('requirement', 'suggestion'));
 ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS extraction_engine TEXT NOT NULL DEFAULT 'manual'
     CHECK (extraction_engine IN ('manual', 'basic', 'ai'));
+ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS submission_url VARCHAR(2048) NOT NULL DEFAULT '';
+ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS preparation_note TEXT NOT NULL DEFAULT ''
+    CHECK (char_length(preparation_note) <= 4000);
 
 CREATE TABLE IF NOT EXISTS extraction_drafts (
     id UUID PRIMARY KEY,

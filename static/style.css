@@ -123,7 +123,7 @@ main.shell { padding-bottom: 56px; }
 .check-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: white; }
 .check-toggle[aria-pressed="false"] span { opacity: 0; }
 .check-toggle:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
-.item-content { min-width: 0; }
+.item-content { min-width: 0; flex: 1; }
 .item-title { font-weight: 700; overflow-wrap: anywhere; }
 .evidence { margin-top: 3px; color: var(--muted); font-size: .9rem; }
 .add-heading { margin-top: 20px; padding-top: 17px; border-top: 1px solid var(--line); font-size: 1rem; }
@@ -169,6 +169,17 @@ button:disabled { opacity: .65; cursor: wait; }
 .pdf-source-page:target { background: var(--accent-soft); border-radius: 8px; }
 .pdf-source-page .notice-copy { margin-top: 7px; }
 .page-links { margin-top: 7px; font-size: .8rem; color: var(--accent-hover); }
+.checklist-item { scroll-margin-top: 18px; }
+.preparation-guide { margin-top: 16px; }
+.preparation-editor { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.preparation-editor summary { cursor: pointer; color: var(--accent); font-size: .88rem; font-weight: 650; }
+.preparation-editor .fields { margin-top: 12px; gap: 10px; }
+.preparation-editor .primary { padding: 7px 12px; font-size: .88rem; }
+.preparation-saved { margin-top: 12px; padding: 12px; background: var(--ground); border-radius: 8px; }
+.preparation-heading { color: var(--muted); font-size: .8rem; font-weight: 700; margin-bottom: 5px; }
+.submission-link { display: block; overflow-wrap: anywhere; font-size: .88rem; }
+.preparation-note { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; margin-top: 4px; }
+.save-feedback { margin-top: 10px; color: var(--accent-hover); font-size: .85rem; font-weight: 700; }
 
 @media (max-width: 720px) {
   .shell { width: calc(100% - 28px); }

@@ -25,6 +25,7 @@ from store import (
     create_pdf_import,
     get_pdf_import,
     save_pdf_import,
+    save_checklist_preparation,
 )
 
 router = APIRouter(include_in_schema=False)
@@ -42,7 +43,7 @@ def render_home(request: Request, *, title="", body="", error=None, pdf_error=No
 
 
 def render_detail(request: Request, assignment: Assignment, *, title="", evidence="", error=None,
-                  extraction_error=None):
+                  extraction_error=None, preparation_error=None, preparation_values=None, saved_item_id=None):
     items = list_checklist(assignment.id)
     return templates.TemplateResponse(
         request,
@@ -55,11 +56,14 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "evidence": evidence,
             "error": error,
             "extraction_error": extraction_error,
+            "preparation_error": preparation_error,
+            "preparation_values": preparation_values,
+            "saved_item_id": saved_item_id,
             "ai_ready": ai_ready(),
             "ai_provider": ai_provider(),
             "local_ai_ready": local_ai_ready(),
         },
-        status_code=422 if error or extraction_error else 200,
+        status_code=422 if error or extraction_error or preparation_error else 200,
     )
 
 
@@ -142,8 +146,8 @@ def save_pdf_notice(request: Request, import_id: UUID,
 
 
 @router.get("/notices/{assignment_id}", response_class=HTMLResponse)
-def notice_detail(request: Request, assignment_id: int):
-    return render_detail(request, get_assignment(assignment_id))
+def notice_detail(request: Request, assignment_id: int, saved: int | None = None):
+    return render_detail(request, get_assignment(assignment_id), saved_item_id=saved)
 
 
 @router.post("/notices/{assignment_id}/checklist", response_class=HTMLResponse)
@@ -170,6 +174,23 @@ def update_completion(
 ):
     set_checklist_completed(assignment_id, item_id, completed)
     return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment_id), status_code=303)
+
+
+@router.post('/notices/{assignment_id}/checklist/{item_id}/preparation', response_class=HTMLResponse)
+def update_preparation(
+    request: Request, assignment_id: int, item_id: int,
+    submission_url: Annotated[str, Form()] = '',
+    preparation_note: Annotated[str, Form()] = '',
+):
+    assignment = get_assignment(assignment_id)
+    try:
+        save_checklist_preparation(assignment_id, item_id, submission_url, preparation_note)
+    except ValueError as exc:
+        return render_detail(request, assignment, preparation_error=str(exc), preparation_values={
+            'item_id': item_id, 'submission_url': submission_url, 'preparation_note': preparation_note,
+        })
+    url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(saved=item_id)
+    return RedirectResponse(str(url) + f'#checklist-item-{item_id}', status_code=303)
 
 
 @router.post('/notices/{assignment_id}/extract', response_class=HTMLResponse)

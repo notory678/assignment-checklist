@@ -10,7 +10,7 @@ import psycopg
 from fastapi import HTTPException
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from extraction import Candidate, ExtractionResult, MAX_BODY_LENGTH, normalize
 from pdf_input import PdfDocument, PdfPage, join_pages
@@ -52,6 +52,8 @@ class ChecklistItem(BaseModel):
     completed: bool
     kind: str = 'requirement'
     extraction_engine: str = 'manual'
+    submission_url: str = ''
+    preparation_note: str = ''
 
 
 @contextmanager
@@ -170,7 +172,8 @@ def list_checklist(assignment_id: int) -> list[ChecklistItem]:
     with database() as connection:
         rows = connection.execute(
             """
-            SELECT id, title, evidence, completed, kind, extraction_engine FROM checklist_items
+            SELECT id, title, evidence, completed, kind, extraction_engine,
+                   submission_url, preparation_note FROM checklist_items
             WHERE assignment_id = %s ORDER BY id
             """,
             (assignment_id,),
@@ -283,3 +286,37 @@ def set_checklist_completed(assignment_id: int, item_id: int, completed: bool) -
         )
         if result.rowcount == 0:
             raise HTTPException(404, "이 공지에서 해당 체크리스트 항목을 찾을 수 없습니다.")
+
+
+def save_checklist_preparation(assignment_id: int, item_id: int, submission_url: str, preparation_note: str) -> None:
+    submission_url = submission_url.strip()
+    preparation_note = normalize_newlines(preparation_note).strip()
+    if len(submission_url) > 2048:
+        raise ValueError('제출 주소는 2,048자 이내로 입력해 주세요.')
+    if submission_url:
+        if not submission_url.lower().startswith(('http://', 'https://')) or '\\' in submission_url:
+            raise ValueError('제출 주소는 http:// 또는 https://로 시작하는 올바른 웹 주소로 입력해 주세요.')
+        if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in submission_url):
+            raise ValueError('제출 주소에는 공백이나 줄바꿈을 넣을 수 없습니다.')
+        try:
+            address = HttpUrl(submission_url)
+        except ValueError as exc:
+            raise ValueError('제출 주소는 http:// 또는 https://로 시작하는 올바른 웹 주소로 입력해 주세요.') from exc
+        if address.username is not None or address.password is not None:
+            raise ValueError('제출 주소에 아이디나 비밀번호를 포함하지 말아 주세요.')
+        # Use the validated representation for both storage and the clickable link.
+        submission_url = str(address)
+        if len(submission_url) > 2048:
+            raise ValueError('제출 주소는 2,048자 이내로 입력해 주세요.')
+    if len(preparation_note) > 4000:
+        raise ValueError('준비 메모는 4,000자 이내로 입력해 주세요.')
+    if '\x00' in preparation_note:
+        raise ValueError('준비 메모에 사용할 수 없는 문자가 있습니다. 내용을 확인해 주세요.')
+    with database() as connection:
+        result = connection.execute(
+            '''UPDATE checklist_items SET submission_url = %s, preparation_note = %s
+               WHERE assignment_id = %s AND id = %s''',
+            (submission_url, preparation_note, assignment_id, item_id),
+        )
+        if result.rowcount == 0:
+            raise HTTPException(404, '이 공지에서 해당 체크리스트 항목을 찾을 수 없습니다.')

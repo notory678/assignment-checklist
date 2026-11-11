@@ -65,9 +65,11 @@
       {% endif %}
     </div>
     {% if items %}
+    <p class="hint preparation-guide">각 항목에 제출 주소와 준비 메모를 남길 수 있습니다. 입력은 선택사항입니다.</p>
     <ul class="checklist">
       {% for item in items %}
-      <li class="checklist-item">
+      {% set editing_preparation = preparation_values and preparation_values.item_id == item.id %}
+      <li class="checklist-item" id="checklist-item-{{ item.id }}">
         <form action="{{ url_for('update_completion', assignment_id=assignment.id, item_id=item.id) }}" method="post">
           <button class="check-toggle" type="submit" name="completed"
                   value="{{ 'false' if item.completed else 'true' }}"
@@ -79,6 +81,36 @@
           <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안') }}</span>
           {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
           {{ page_links(assignment.source_pages, item.evidence) }}
+          {% if saved_item_id == item.id %}<p class="save-feedback" role="status">준비 내용을 저장했습니다.</p>{% endif %}
+          {% if item.submission_url or item.preparation_note %}
+          <div class="preparation-saved">
+            <p class="preparation-heading">내가 준비한 내용</p>
+            {% if item.submission_url %}
+            <a class="submission-link" href="{{ item.submission_url }}" target="_blank" rel="noopener noreferrer">{{ item.submission_url }} <span class="hint">(새 탭)</span></a>
+            {% endif %}
+            {% if item.preparation_note %}<p class="preparation-note">{{ item.preparation_note }}</p>{% endif %}
+          </div>
+          {% endif %}
+          <details class="preparation-editor" {% if editing_preparation %}open{% endif %}>
+            <summary>{{ '주소·메모 수정' if item.submission_url or item.preparation_note else '주소·메모 추가' }}</summary>
+            {% if editing_preparation %}<p class="error" role="alert" id="preparation-error-{{ item.id }}">{{ preparation_error }}</p>{% endif %}
+            <form class="fields preparation-form" aria-label="{{ item.title }} 준비 내용"
+                  action="{{ url_for('update_preparation', assignment_id=assignment.id, item_id=item.id) }}" method="post">
+              <div>
+                <label for="submission-url-{{ item.id }}">제출 주소 (선택)</label>
+                <input id="submission-url-{{ item.id }}" name="submission_url" type="url" maxlength="2048"
+                       value="{{ preparation_values.submission_url if editing_preparation else item.submission_url }}"
+                       placeholder="https://example.com/my-project" aria-describedby="preparation-hint-{{ item.id }}">
+              </div>
+              <div>
+                <label for="preparation-note-{{ item.id }}">준비 메모 (선택)</label>
+                <textarea id="preparation-note-{{ item.id }}" name="preparation_note" rows="3" maxlength="4000"
+                          placeholder="파일 위치, 시연 순서, 남은 수정 사항 등을 적으세요.">{{ preparation_values.preparation_note if editing_preparation else item.preparation_note }}</textarea>
+              </div>
+              <p class="hint" id="preparation-hint-{{ item.id }}">웹 주소는 http:// 또는 https://로 입력하고, 파일 위치는 메모에 적어 주세요. 두 칸을 비워 저장하면 기존 내용을 지웁니다.</p>
+              <button class="primary" type="submit">주소·메모 저장</button>
+            </form>
+          </details>
         </div>
       </li>
       {% endfor %}
