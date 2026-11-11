@@ -1,10 +1,13 @@
 from pathlib import Path
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+
+from extraction import Candidate, ExtractionError, ai_ready, extract_notice
 
 from store import (
     Assignment,
@@ -15,6 +18,9 @@ from store import (
     list_assignments,
     list_checklist,
     set_checklist_completed,
+    create_extraction_draft,
+    get_extraction_draft,
+    save_extraction_review,
 )
 
 router = APIRouter(include_in_schema=False)
@@ -30,7 +36,8 @@ def render_home(request: Request, *, title="", body="", error=None):
     )
 
 
-def render_detail(request: Request, assignment: Assignment, *, title="", evidence="", error=None):
+def render_detail(request: Request, assignment: Assignment, *, title="", evidence="", error=None,
+                  extraction_error=None):
     items = list_checklist(assignment.id)
     return templates.TemplateResponse(
         request,
@@ -42,8 +49,24 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "title": title,
             "evidence": evidence,
             "error": error,
+            "extraction_error": extraction_error,
+            "ai_ready": ai_ready(),
         },
-        status_code=422 if error else 200,
+        status_code=422 if error or extraction_error else 200,
+    )
+
+
+def render_review(request: Request, assignment: Assignment, draft, *, titles=None, evidences=None,
+                  selected=None, error=None):
+    items = draft.result.items
+    return templates.TemplateResponse(
+        request, 'review.html', {
+            'assignment': assignment, 'draft': draft,
+            'titles': titles if titles is not None else [item.title for item in items],
+            'evidences': evidences if evidences is not None else [item.evidence for item in items],
+            'selected': selected if selected is not None else {str(i) for i, item in enumerate(items) if item.kind == 'requirement'},
+            'error': error,
+        }, status_code=422 if error else 200,
     )
 
 
@@ -98,3 +121,52 @@ def update_completion(
 ):
     set_checklist_completed(assignment_id, item_id, completed)
     return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment_id), status_code=303)
+
+
+@router.post('/notices/{assignment_id}/extract', response_class=HTMLResponse)
+def generate_checklist(request: Request, assignment_id: int, engine: Annotated[str, Form()] = 'basic'):
+    assignment = get_assignment(assignment_id)
+    try:
+        result = extract_notice(assignment.title, assignment.body, engine)
+    except ExtractionError as exc:
+        return render_detail(request, assignment, extraction_error=str(exc))
+    draft_id = create_extraction_draft(assignment_id, result)
+    return RedirectResponse(request.url_for('review_extraction', assignment_id=assignment_id, draft_id=draft_id), status_code=303)
+
+
+@router.get('/notices/{assignment_id}/extractions/{draft_id}', response_class=HTMLResponse)
+def review_extraction(request: Request, assignment_id: int, draft_id: UUID):
+    assignment = get_assignment(assignment_id)
+    draft = get_extraction_draft(assignment_id, draft_id)
+    if draft.saved_at:
+        return RedirectResponse(request.url_for('notice_detail', assignment_id=assignment_id), status_code=303)
+    return render_review(request, assignment, draft)
+
+
+@router.post('/notices/{assignment_id}/extractions/{draft_id}/save', response_class=HTMLResponse)
+def save_review(
+    request: Request, assignment_id: int, draft_id: UUID,
+    selected: Annotated[list[str], Form()] = [],
+    titles: Annotated[list[str], Form()] = [],
+    evidences: Annotated[list[str], Form()] = [],
+):
+    assignment = get_assignment(assignment_id)
+    draft = get_extraction_draft(assignment_id, draft_id)
+    if draft.saved_at:
+        return RedirectResponse(request.url_for('notice_detail', assignment_id=assignment_id), status_code=303)
+    try:
+        if len(titles) != len(draft.result.items) or len(evidences) != len(titles):
+            raise ValueError('입력 항목을 읽지 못했습니다. 결과 화면을 다시 열어 주세요.')
+        allowed = {str(i) for i in range(len(titles))}
+        if set(selected) - allowed:
+            raise ValueError('저장할 항목을 확인한 뒤 다시 선택해 주세요.')
+        reviewed = [Candidate(title=titles[i], evidence=evidences[i], kind=item.kind)
+                    for i, item in enumerate(draft.result.items) if str(i) in set(selected)]
+        save_extraction_review(assignment, draft_id, reviewed)
+    except (ValueError, ValidationError) as exc:
+        error = '항목 이름은 1~200자, 근거는 4,000자 이내로 입력해 주세요.' if isinstance(exc, ValidationError) else str(exc)
+        if len(titles) != len(draft.result.items) or len(evidences) != len(draft.result.items):
+            titles = evidences = None
+        return render_review(request, assignment, draft, titles=titles, evidences=evidences,
+                             selected=set(selected), error=error)
+    return RedirectResponse(request.url_for('notice_detail', assignment_id=assignment_id), status_code=303)

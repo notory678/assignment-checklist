@@ -127,6 +127,25 @@ main.shell { padding-bottom: 56px; }
 .item-title { font-weight: 700; overflow-wrap: anywhere; }
 .evidence { margin-top: 3px; color: var(--muted); font-size: .9rem; }
 .add-heading { margin-top: 20px; padding-top: 17px; border-top: 1px solid var(--line); font-size: 1rem; }
+.extraction-box { margin-top: 16px; padding: 16px; background: var(--ground); border-radius: 10px; }
+.extraction-box form { margin-top: 12px; }
+.engine-label { font-size: .88rem; font-weight: 700; color: var(--accent-hover); margin-top: 10px; }
+.extraction-box .engine-label { margin-top: 0; }
+.kind-badge { display: inline-block; margin-block: 5px; padding: 2px 8px; border-radius: 5px; font-size: .76rem; font-weight: 650; }
+.kind-badge.requirement { background: var(--accent-soft); color: var(--accent-hover); }
+.kind-badge.suggestion { background: #fff2d5; color: #73531b; }
+.deadline-box { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.deadline-box h3 { font-size: .95rem; }
+.notice-message { margin-top: 12px; padding: 12px; border-radius: 8px; color: #67501e; background: #fff7e3; font-size: .88rem; }
+.review-items { margin-top: 22px; display: grid; gap: 20px; }
+.review-item { min-width: 0; margin: 0; padding: 12px 16px 16px; border: 1px solid var(--line); border-radius: 10px; }
+.review-item label { margin-top: 9px; }
+.selection-label { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+.selection-label input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.save-hint { margin-block: 18px 12px; }
+.cancel-link { display: inline-block; margin-top: 18px; font-size: .9rem; }
+.text-button { padding: 0; color: var(--accent); background: transparent; border: 0; text-decoration: underline; font-size: .88rem; }
+button:disabled { opacity: .65; cursor: wait; }
 
 @media (max-width: 720px) {
   .shell { width: calc(100% - 28px); }

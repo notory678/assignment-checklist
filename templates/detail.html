@@ -6,19 +6,45 @@
 <section class="intro">
   <a class="back-link" href="{{ url_for('home') }}">← 공지 목록</a>
   <h1>{{ assignment.title }}</h1>
-  <p>원문을 확인하며 제출 준비 항목을 추가하세요.</p>
+  <p>체크리스트를 자동으로 만들고, 원문을 확인하며 제출을 준비하세요.</p>
 </section>
 
 <div class="columns detail-columns">
   <section class="panel" aria-labelledby="notice-body-heading">
     <h2 id="notice-body-heading">공지 원문</h2>
     <div class="notice-copy">{{ assignment.body }}</div>
+    <div class="deadline-box">
+      <h3>제출 기한</h3>
+      {% if assignment.deadline_evidence %}
+      <p class="evidence">{{ assignment.deadline_evidence }}</p>
+      {% elif assignment.extraction_reviewed %}
+      <p class="muted">미기재</p>
+      {% else %}
+      <p class="muted">자동 추출 후 확인할 수 있습니다.</p>
+      {% endif %}
+    </div>
   </section>
 
   <section class="panel" aria-labelledby="checklist-heading">
     <div class="panel-heading">
       <h2 id="checklist-heading">체크리스트</h2>
       <span class="badge">{{ completed_count }}/{{ items | length }} 완료</span>
+    </div>
+    <div class="extraction-box">
+      <p class="engine-label">{{ 'AI 자동 추출' if ai_ready else '기본 자동 추출 · AI 미연결' }}</p>
+      <p class="hint">{{ '공지 내용을 AI로 분석합니다.' if ai_ready else '제출·준비 표현을 찾아 항목을 만듭니다.' }} 저장 전에 결과를 확인하고 수정할 수 있어요.</p>
+      {% if ai_ready %}<p class="hint">자동 생성 시 공지 제목과 본문을 연결된 AI 서비스에 전송합니다.</p>{% endif %}
+      {% if extraction_error %}<p class="error" role="alert">{{ extraction_error }}</p>{% endif %}
+      <form action="{{ url_for('generate_checklist', assignment_id=assignment.id) }}" method="post" data-loading="추출 중…">
+        <input type="hidden" name="engine" value="{{ 'ai' if ai_ready else 'basic' }}">
+        <button class="primary" type="submit">체크리스트 자동 생성</button>
+      </form>
+      {% if ai_ready %}
+      <form action="{{ url_for('generate_checklist', assignment_id=assignment.id) }}" method="post" data-loading="추출 중…">
+        <input type="hidden" name="engine" value="basic">
+        <button class="text-button" type="submit">기본 추출 사용</button>
+      </form>
+      {% endif %}
     </div>
     {% if items %}
     <ul class="checklist">
@@ -32,7 +58,8 @@
         </form>
         <div class="item-content">
           <p class="item-title">{{ item.title }}</p>
-          <p class="evidence">{{ item.evidence }}</p>
+          <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안') }}</span>
+          {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
         </div>
       </li>
       {% endfor %}

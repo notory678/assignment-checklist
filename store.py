@@ -4,11 +4,15 @@ from datetime import datetime
 from os import getenv
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import HTTPException
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
+
+from extraction import Candidate, ExtractionResult, normalize
 
 
 class AssignmentCreate(BaseModel):
@@ -33,6 +37,8 @@ class AssignmentSummary(BaseModel):
 
 class Assignment(AssignmentSummary):
     body: str
+    deadline_evidence: str = ''
+    extraction_reviewed: bool = False
 
 
 class ChecklistItem(BaseModel):
@@ -40,6 +46,8 @@ class ChecklistItem(BaseModel):
     title: str
     evidence: str
     completed: bool
+    kind: str = 'requirement'
+    extraction_engine: str = 'manual'
 
 
 @contextmanager
@@ -66,7 +74,7 @@ def create_assignment(payload: AssignmentCreate) -> Assignment:
         row = connection.execute(
             """
             INSERT INTO assignments (title, body) VALUES (%s, %s)
-            RETURNING id, title, body, created_at
+            RETURNING id, title, body, created_at, deadline_evidence, extraction_reviewed
             """,
             (payload.title, payload.body),
         ).fetchone()
@@ -84,7 +92,7 @@ def list_assignments() -> list[AssignmentSummary]:
 def get_assignment(assignment_id: int) -> Assignment:
     with database() as connection:
         row = connection.execute(
-            "SELECT id, title, body, created_at FROM assignments WHERE id = %s",
+            "SELECT id, title, body, created_at, deadline_evidence, extraction_reviewed FROM assignments WHERE id = %s",
             (assignment_id,),
         ).fetchone()
     if row is None:
@@ -96,7 +104,7 @@ def list_checklist(assignment_id: int) -> list[ChecklistItem]:
     with database() as connection:
         rows = connection.execute(
             """
-            SELECT id, title, evidence, completed FROM checklist_items
+            SELECT id, title, evidence, completed, kind, extraction_engine FROM checklist_items
             WHERE assignment_id = %s ORDER BY id
             """,
             (assignment_id,),
@@ -120,6 +128,82 @@ def add_checklist_item(assignment: Assignment, title: str, evidence: str) -> Non
             "INSERT INTO checklist_items (assignment_id, title, evidence) VALUES (%s, %s, %s)",
             (assignment.id, title, evidence),
         )
+
+
+class ExtractionDraft(BaseModel):
+    id: UUID
+    assignment_id: int
+    result: ExtractionResult
+    saved_at: datetime | None = None
+
+
+def create_extraction_draft(assignment_id: int, result: ExtractionResult) -> UUID:
+    draft_id = uuid4()
+    with database() as connection:
+        connection.execute(
+            'INSERT INTO extraction_drafts (id, assignment_id, result) VALUES (%s, %s, %s)',
+            (draft_id, assignment_id, Jsonb(result.model_dump())),
+        )
+    return draft_id
+
+
+def get_extraction_draft(assignment_id: int, draft_id: UUID) -> ExtractionDraft:
+    with database() as connection:
+        row = connection.execute(
+            'SELECT id, assignment_id, result, saved_at FROM extraction_drafts WHERE id = %s AND assignment_id = %s',
+            (draft_id, assignment_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, '이 공지의 추출 결과를 찾을 수 없습니다.')
+    return ExtractionDraft.model_validate(row)
+
+
+def validate_review_item(assignment: Assignment, item: Candidate) -> Candidate:
+    title, evidence = item.title.strip(), normalize(item.evidence).strip()
+    if not title or len(title) > 200 or '\x00' in title:
+        raise ValueError('선택한 항목 이름을 1~200자로 입력해 주세요.')
+    if item.kind == 'requirement' and (not evidence or evidence not in normalize(assignment.body)):
+        raise ValueError('공지에 명시된 항목의 근거는 원문에서 그대로 복사해 주세요.')
+    if item.kind == 'suggestion':
+        evidence = ''
+    return Candidate(title=title, evidence=evidence, kind=item.kind)
+
+
+def save_extraction_review(assignment: Assignment, draft_id: UUID, items: list[Candidate]) -> None:
+    if not items:
+        raise ValueError('저장할 항목을 하나 이상 선택해 주세요.')
+    validated = [validate_review_item(assignment, item) for item in items]
+    with database() as connection:
+        # Serializes saves for this notice, including separate extraction drafts.
+        connection.execute('SELECT id FROM assignments WHERE id = %s FOR UPDATE', (assignment.id,))
+        row = connection.execute(
+            'SELECT id, assignment_id, result, saved_at FROM extraction_drafts WHERE id = %s AND assignment_id = %s FOR UPDATE',
+            (draft_id, assignment.id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, '이 공지의 추출 결과를 찾을 수 없습니다.')
+        draft = ExtractionDraft.model_validate(row)
+        if draft.saved_at:
+            return
+        rows = connection.execute(
+            'SELECT title, evidence, kind FROM checklist_items WHERE assignment_id = %s', (assignment.id,),
+        ).fetchall()
+        existing = {(item['title'].strip().casefold(), normalize(item['evidence']).strip(), item['kind']) for item in rows}
+        for item in validated:
+            key = (item.title.casefold(), item.evidence, item.kind)
+            if key in existing:
+                continue
+            connection.execute(
+                '''INSERT INTO checklist_items (assignment_id, title, evidence, kind, extraction_engine)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (assignment.id, item.title, item.evidence, item.kind, draft.result.engine),
+            )
+            existing.add(key)
+        if draft.result.deadline_evidence:
+            connection.execute('UPDATE assignments SET deadline_evidence = %s WHERE id = %s',
+                               (draft.result.deadline_evidence, assignment.id))
+        connection.execute('UPDATE assignments SET extraction_reviewed = TRUE WHERE id = %s', (assignment.id,))
+        connection.execute('UPDATE extraction_drafts SET saved_at = CURRENT_TIMESTAMP WHERE id = %s', (draft_id,))
 
 
 def set_checklist_completed(assignment_id: int, item_id: int, completed: bool) -> None:

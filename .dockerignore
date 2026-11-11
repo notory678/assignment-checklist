@@ -4,9 +4,11 @@
 !main.py
 !store.py
 !web.py
+!extraction.py
 !db/
 !db/init.sql
 !static/
 !static/style.css
+!static/app.js
 !templates/
 !templates/*.html
