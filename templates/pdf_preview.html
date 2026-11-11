@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}PDF 본문 확인 · 과제 체크리스트{% endblock %}
+
+{% block content %}
+<section class="intro">
+  <a class="back-link" href="{{ url_for('home') }}">← 공지 목록</a>
+  <h1>PDF 본문 확인</h1>
+  <p>과제 조건이 적힌 페이지를 골라 공지로 저장하세요.</p>
+</section>
+
+<section class="panel pdf-preview-panel" aria-labelledby="pdf-preview-heading">
+  <div class="panel-heading">
+    <h2 id="pdf-preview-heading">{{ draft.filename }}</h2>
+    <span class="badge">{{ draft.pages | length }}페이지</span>
+  </div>
+  <p class="muted">텍스트가 올바르게 읽혔는지 원본과 비교해 주세요. 표·다단 문서에서는 읽는 순서가 달라질 수 있습니다.</p>
+  <p class="hint">페이지 번호는 PDF 파일 순서입니다. 텍스트를 읽지 못한 페이지는 선택할 수 없습니다. 이 단계에서는 외부 AI에 전송하지 않습니다.</p>
+  {% for warning in draft.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form class="fields" action="{{ url_for('save_pdf_notice', import_id=draft.id) }}" method="post" data-pdf-selection>
+    <div>
+      <label for="pdf-title">공지 제목</label>
+      <input id="pdf-title" name="title" value="{{ title }}" maxlength="200" required>
+    </div>
+    <p class="hint">선택한 본문은 최대 30,000자입니다. 긴 강의 자료에서는 과제 안내 페이지만 골라 주세요.</p>
+    <div class="page-selection-actions">
+      <button class="text-button" type="button" data-select-pages="all">읽을 수 있는 페이지 모두 선택</button>
+      <button class="text-button" type="button" data-select-pages="none">선택 해제</button>
+    </div>
+    <div class="pdf-preview-pages">
+      {% for page in draft.pages %}
+      <fieldset class="pdf-preview-page">
+        <legend>
+          <label class="selection-label" for="page-{{ page.number }}">
+            <input id="page-{{ page.number }}" type="checkbox" name="selected" value="{{ page.number }}" data-text-length="{{ page.text | length }}" {% if page.number | string in selected and page.text %}checked{% endif %} {% if not page.text %}disabled{% endif %}>
+            PDF {{ page.number }}페이지{% if not page.text %} · 읽을 수 있는 텍스트 없음{% endif %}
+          </label>
+        </legend>
+        {% if page.text %}<div class="notice-copy pdf-preview-text">{{ page.text }}</div>{% else %}<p class="hint">원본을 확인해 주세요. 이미지에 있는 글자는 아직 읽지 않습니다.</p>{% endif %}
+      </fieldset>
+      {% endfor %}
+    </div>
+    <p class="selection-summary" role="status" data-selection-summary>저장할 페이지를 선택하세요.</p>
+    <p class="hint">미리보기는 24시간 보관합니다. 저장 후에는 선택한 본문·파일명·페이지 번호를 보관하며, PDF 파일 자체는 보관하지 않습니다.</p>
+    <button class="primary" type="submit">선택한 페이지로 공지 저장</button>
+  </form>
+</section>
+{% endblock %}

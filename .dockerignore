@@ -5,6 +5,7 @@
 !store.py
 !web.py
 !extraction.py
+!pdf_input.py
 !db/
 !db/init.sql
 !static/

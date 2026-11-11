@@ -33,3 +33,16 @@ CREATE TABLE IF NOT EXISTS extraction_drafts (
 
 CREATE INDEX IF NOT EXISTS extraction_drafts_assignment_idx
     ON extraction_drafts (assignment_id);
+
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS source_filename TEXT NOT NULL DEFAULT '';
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS source_pages JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS source_warnings JSONB NOT NULL DEFAULT '[]';
+
+CREATE TABLE IF NOT EXISTS pdf_imports (
+    id UUID PRIMARY KEY,
+    filename TEXT NOT NULL,
+    pages JSONB NOT NULL,
+    warnings JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    assignment_id BIGINT REFERENCES assignments (id) ON DELETE CASCADE
+);

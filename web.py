@@ -2,12 +2,13 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from extraction import Candidate, ExtractionError, ai_provider, ai_ready, local_ai_ready, extract_notice
+from pdf_input import MAX_PDF_BYTES, PdfInputError, evidence_page_numbers, extract_pdf
 
 from store import (
     Assignment,
@@ -21,18 +22,22 @@ from store import (
     create_extraction_draft,
     get_extraction_draft,
     save_extraction_review,
+    create_pdf_import,
+    get_pdf_import,
+    save_pdf_import,
 )
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=Path(__file__).with_name("templates"))
+templates.env.globals['evidence_pages'] = evidence_page_numbers
 
 
-def render_home(request: Request, *, title="", body="", error=None):
+def render_home(request: Request, *, title="", body="", error=None, pdf_error=None):
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"assignments": list_assignments(), "title": title, "body": body, "error": error},
-        status_code=422 if error else 200,
+        {"assignments": list_assignments(), "title": title, "body": body, "error": error, "pdf_error": pdf_error},
+        status_code=422 if error or pdf_error else 200,
     )
 
 
@@ -92,6 +97,48 @@ def save_notice(
         )
     assignment = create_assignment(payload)
     return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment.id), status_code=303)
+
+
+@router.post('/notices/pdf', response_class=HTMLResponse)
+def upload_pdf(request: Request, file: Annotated[UploadFile | None, File()] = None):
+    if file is None:
+        return render_home(request, pdf_error='먼저 PDF 파일을 선택해 주세요.')
+    try:
+        document = extract_pdf(file.file.read(MAX_PDF_BYTES + 1), file.filename or '')
+    except PdfInputError as exc:
+        return render_home(request, pdf_error=str(exc))
+    finally:
+        file.file.close()
+    import_id = create_pdf_import(document)
+    return RedirectResponse(request.url_for('preview_pdf', import_id=import_id), status_code=303)
+
+
+def render_pdf_preview(request: Request, draft, *, title=None, selected=None, error=None):
+    return templates.TemplateResponse(request, 'pdf_preview.html', {
+        'draft': draft,
+        'title': title if title is not None else Path(draft.filename).stem[:200],
+        'selected': selected if selected is not None else {str(page.number) for page in draft.pages if page.text},
+        'error': error,
+    }, status_code=422 if error else 200)
+
+
+@router.get('/pdf-imports/{import_id}', response_class=HTMLResponse)
+def preview_pdf(request: Request, import_id: UUID):
+    draft = get_pdf_import(import_id)
+    if draft.assignment_id is not None:
+        return RedirectResponse(request.url_for('notice_detail', assignment_id=draft.assignment_id), status_code=303)
+    return render_pdf_preview(request, draft)
+
+
+@router.post('/pdf-imports/{import_id}/save', response_class=HTMLResponse)
+def save_pdf_notice(request: Request, import_id: UUID,
+                    title: Annotated[str, Form()] = '', selected: Annotated[list[str], Form()] = []):
+    draft = get_pdf_import(import_id)
+    try:
+        assignment_id = save_pdf_import(import_id, title, selected)
+    except ValueError as exc:
+        return render_pdf_preview(request, draft, title=title, selected=set(selected), error=str(exc))
+    return RedirectResponse(request.url_for('notice_detail', assignment_id=assignment_id), status_code=303)
 
 
 @router.get("/notices/{assignment_id}", response_class=HTMLResponse)

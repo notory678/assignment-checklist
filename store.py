@@ -12,7 +12,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
 
-from extraction import Candidate, ExtractionResult, normalize
+from extraction import Candidate, ExtractionResult, MAX_BODY_LENGTH, normalize
+from pdf_input import PdfDocument, PdfPage, join_pages
 
 
 class AssignmentCreate(BaseModel):
@@ -33,12 +34,15 @@ class AssignmentSummary(BaseModel):
     id: int
     title: str
     created_at: datetime
+    source_filename: str = ''
 
 
 class Assignment(AssignmentSummary):
     body: str
     deadline_evidence: str = ''
     extraction_reviewed: bool = False
+    source_pages: list[PdfPage] = Field(default_factory=list)
+    source_warnings: list[str] = Field(default_factory=list)
 
 
 class ChecklistItem(BaseModel):
@@ -84,7 +88,7 @@ def create_assignment(payload: AssignmentCreate) -> Assignment:
 def list_assignments() -> list[AssignmentSummary]:
     with database() as connection:
         rows = connection.execute(
-            "SELECT id, title, created_at FROM assignments ORDER BY id DESC"
+            "SELECT id, title, created_at, source_filename FROM assignments ORDER BY id DESC"
         ).fetchall()
     return [AssignmentSummary.model_validate(row) for row in rows]
 
@@ -92,12 +96,74 @@ def list_assignments() -> list[AssignmentSummary]:
 def get_assignment(assignment_id: int) -> Assignment:
     with database() as connection:
         row = connection.execute(
-            "SELECT id, title, body, created_at, deadline_evidence, extraction_reviewed FROM assignments WHERE id = %s",
+            """SELECT id, title, body, created_at, deadline_evidence, extraction_reviewed,
+                      source_filename, source_pages, source_warnings FROM assignments WHERE id = %s""",
             (assignment_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(404, "공지를 찾을 수 없습니다.")
     return Assignment.model_validate(row)
+
+
+class PdfImport(PdfDocument):
+    id: UUID
+    assignment_id: int | None = None
+
+
+def create_pdf_import(document: PdfDocument) -> UUID:
+    import_id = uuid4()
+    with database() as connection:
+        connection.execute("DELETE FROM pdf_imports WHERE assignment_id IS NULL AND created_at < CURRENT_TIMESTAMP - INTERVAL '1 day'")
+        connection.execute(
+            'INSERT INTO pdf_imports (id, filename, pages, warnings) VALUES (%s, %s, %s, %s)',
+            (import_id, document.filename, Jsonb([page.model_dump() for page in document.pages]), Jsonb(document.warnings)),
+        )
+    return import_id
+
+
+def get_pdf_import(import_id: UUID) -> PdfImport:
+    with database() as connection:
+        row = connection.execute(
+            """SELECT id, filename, pages, warnings, assignment_id FROM pdf_imports
+               WHERE id = %s AND (assignment_id IS NOT NULL OR created_at > CURRENT_TIMESTAMP - INTERVAL '1 day')""",
+            (import_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, 'PDF 미리보기를 찾을 수 없거나 보관 기간이 지났습니다. 파일을 다시 올려 주세요.')
+    return PdfImport.model_validate(row)
+
+
+def save_pdf_import(import_id: UUID, title: str, selected: list[str]) -> int:
+    """Persist immutable page text, a canonical body, and its source in one transaction."""
+    with database() as connection:
+        row = connection.execute(
+            """SELECT id, filename, pages, warnings, assignment_id FROM pdf_imports
+               WHERE id = %s AND (assignment_id IS NOT NULL OR created_at > CURRENT_TIMESTAMP - INTERVAL '1 day') FOR UPDATE""",
+            (import_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, 'PDF 미리보기를 찾을 수 없습니다. 파일을 다시 올려 주세요.')
+        draft = PdfImport.model_validate(row)
+        if draft.assignment_id is not None:
+            return draft.assignment_id
+        allowed = {str(page.number) for page in draft.pages if page.text}
+        if not selected or set(selected) - allowed:
+            raise ValueError('텍스트가 있는 페이지를 하나 이상 선택해 주세요.')
+        pages = [page for page in draft.pages if str(page.number) in set(selected)]
+        body = join_pages(pages)
+        if len(body) > MAX_BODY_LENGTH:
+            raise ValueError('선택한 본문은 30,000자까지 저장할 수 있습니다. 과제 공지가 있는 페이지만 골라 주세요.')
+        try:
+            payload = AssignmentCreate(title=title.strip(), body=body)
+        except ValueError as exc:
+            raise ValueError('공지 제목을 1~200자로 입력해 주세요.') from exc
+        assignment = connection.execute(
+            """INSERT INTO assignments (title, body, source_filename, source_pages, source_warnings)
+               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+            (payload.title, payload.body, draft.filename, Jsonb([page.model_dump() for page in pages]), Jsonb(draft.warnings)),
+        ).fetchone()
+        connection.execute('UPDATE pdf_imports SET assignment_id = %s WHERE id = %s', (assignment['id'], import_id))
+    return assignment['id']
 
 
 def list_checklist(assignment_id: int) -> list[ChecklistItem]:

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "source_macros.html" import source_text, page_links %}
 
 {% block title %}{{ assignment.title }} · 과제 체크리스트{% endblock %}
 
@@ -12,11 +13,12 @@
 <div class="columns detail-columns">
   <section class="panel" aria-labelledby="notice-body-heading">
     <h2 id="notice-body-heading">공지 원문</h2>
-    <div class="notice-copy">{{ assignment.body }}</div>
+    {{ source_text(assignment) }}
     <div class="deadline-box">
       <h3>제출 기한</h3>
       {% if assignment.deadline_evidence %}
       <p class="evidence">{{ assignment.deadline_evidence }}</p>
+      {{ page_links(assignment.source_pages, assignment.deadline_evidence) }}
       {% elif assignment.extraction_reviewed %}
       <p class="muted">미기재</p>
       {% else %}
@@ -76,6 +78,7 @@
           <p class="item-title">{{ item.title }}</p>
           <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안') }}</span>
           {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
+          {{ page_links(assignment.source_pages, item.evidence) }}
         </div>
       </li>
       {% endfor %}

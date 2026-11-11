@@ -24,6 +24,18 @@
       </div>
       <button class="primary" type="submit">공지 저장</button>
     </form>
+    <div class="pdf-upload-box">
+      <h3>PDF로 등록</h3>
+      <p class="hint" id="pdf-upload-hint">글자를 선택할 수 있는 PDF · 최대 5MB, 50페이지. 본문을 미리 확인한 뒤 필요한 페이지를 저장합니다.</p>
+      {% if pdf_error %}<p class="error" role="alert">{{ pdf_error }}</p>{% endif %}
+      <form class="fields" action="{{ url_for('upload_pdf') }}" method="post" enctype="multipart/form-data" data-loading="PDF 읽는 중…" data-loading-message="페이지별 본문을 읽고 있어요. 잠시만 기다려 주세요.">
+        <div>
+          <label for="pdf-file">공지 PDF 파일</label>
+          <input id="pdf-file" name="file" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-upload-hint" required>
+        </div>
+        <button class="primary" type="submit">PDF 본문 미리보기</button>
+      </form>
+    </div>
   </section>
 
   <section class="panel" aria-labelledby="notice-list-heading">
@@ -36,7 +48,7 @@
       {% for assignment in assignments %}
       <li>
         <a href="{{ url_for('notice_detail', assignment_id=assignment.id) }}">
-          <span>{{ assignment.title }}</span>
+          <span>{{ assignment.title }}{% if assignment.source_filename %} <span class="kind-badge requirement">PDF</span>{% endif %}</span>
           <span class="arrow" aria-hidden="true">→</span>
         </a>
       </li>
