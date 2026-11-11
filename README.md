@@ -4,7 +4,7 @@
 
 ## 로컬 실행
 
-Docker Desktop을 열고 프로젝트 폴더의 터미널에서 실행합니다.
+Docker Desktop을 열고 프로젝트 폴더의 터미널에서 실행합니다. 기본 AI 연결은 Groq API이며, 로컬 AI는 예비 기능으로 사용할 수 있습니다.
 
 ```bash
 docker compose up --build -d --wait
@@ -15,7 +15,7 @@ docker compose up --build -d --wait
 ## 사용 방법
 
 1. [과제 체크리스트](http://127.0.0.1:8000/)를 열어 제목과 공지 본문을 입력하고 **공지 저장**을 누릅니다.
-2. 상세 화면에서 **체크리스트 자동 생성**을 누릅니다. 기본 설정에서는 API 키 없이 규칙 기반 추출을 사용합니다.
+2. 상세 화면에서 **체크리스트 자동 생성**을 누릅니다. Groq API 키를 설정하면 API로 추출합니다. 키가 없으면 규칙 기반 추출을 사용하며, 준비된 로컬 AI도 별도 버튼으로 선택할 수 있습니다.
 3. 결과 화면에서 원문과 비교하며 이름·근거를 수정합니다. 제외할 항목은 선택을 해제하고 **선택한 항목 저장**을 누릅니다.
 4. **공지에 명시**와 **준비 제안**을 구분해 보여줍니다. 제안은 처음에 선택되지 않으며 필수 조건으로 취급하지 않습니다. 날짜가 없으면 제출 기한을 **미기재**로 표시합니다. 날짜를 계산하거나 연도를 추측하지 않습니다.
 5. 항목 왼쪽의 체크 버튼을 누르면 완료 상태를 저장합니다. 다시 누르면 완료를 해제합니다. **공지 목록**으로 돌아가 저장한 공지를 다시 열 수 있습니다.
@@ -47,28 +47,73 @@ docker compose up --build -d --wait
 - 선택·불필요·예시·추후 안내가 포함된 문장은 기본 추출에서 제외합니다. 한 문장에 필수와 선택 조건이 섞이면 필수 항목도 누락될 수 있습니다. 문장 맥락과 표·복잡한 조건은 사용자가 원문과 비교해야 합니다.
 - 자동 추출 본문은 30,000자, 결과는 최대 40개입니다. 원문에 없는 근거는 제외하고, 검토 중 근거를 수정한 경우에도 저장 직전에 원문 일치를 다시 확인합니다. 문구 일치만으로 제목의 의미까지 검증하지는 않습니다.
 
-## 선택 사항: Hugging Face API 연결
+## 기본 연결: Groq Free API
 
-기본 추출은 AI를 사용하지 않습니다. 실제 AI 추출은 [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers/index)의 Chat Completions API를 사용합니다.
+[Groq의 Free 플랜](https://console.groq.com/docs/rate-limits)을 사용합니다. 기본 모델은 `openai/gpt-oss-20b`이며 [엄격한 JSON Schema 출력](https://console.groq.com/docs/structured-outputs)을 지원합니다. 같은 모델 이름이라도 이용하는 서비스의 계정 플랜에 따라 비용 조건이 달라집니다. 비용 없이 진행하려면 Groq 계정을 **Free 플랜으로 유지**합니다. 앱은 계정의 결제 플랜을 판별하거나 자동 변경하지 않습니다.
 
-1. [Hugging Face 토큰 설정](https://huggingface.co/settings/tokens)에서 `fine-grained` 토큰을 만들고 **Make calls to Inference Providers** 권한을 부여합니다. 접근 승인이 필요한 모델은 해당 모델의 이용 조건과 접근 권한도 확인합니다.
-2. 프로젝트 폴더에서 `.env.example`을 `.env`로 복사합니다. 기존 `.env`가 있으면 덮어쓰지 않고 아래 두 변수를 추가합니다.
-3. `.env`를 로컬 편집기로 열고 `HF_TOKEN`에 토큰을 입력합니다. 토큰을 채팅이나 코드에 붙여넣지 않습니다. `.env`는 Git과 Docker 빌드에 포함되지 않습니다.
-4. [Inference Playground](https://huggingface.co/playground)와 모델 페이지의 Inference Providers 목록에서 API로 제공되는 모델을 선택하고, 정확한 ID를 `HF_MODEL`에 입력합니다. 모델 파일이 Hub에 공개되어 있어도 API 제공 여부는 별도로 확인해야 합니다. Chat Completions와 `json_schema` 구조화 출력을 모두 지원하는 모델·제공업체를 선택합니다.
-5. `HF_MODEL`은 `조직/모델명` 형식이며, 제공업체를 고정하려면 `조직/모델명:제공업체` 형식으로 입력합니다. 구조화 출력은 모델·제공업체 조합에 따라 지원이 달라지므로 제공업체를 지정하는 편이 좋습니다. 모델별 [요금과 사용 한도](https://huggingface.co/docs/inference-providers/pricing)를 확인합니다.
-6. `APP_PORT=8001 docker compose up --build -d --wait`로 앱을 다시 실행합니다.
+1. [Groq Console](https://console.groq.com)에 로그인합니다.
+2. [API Keys](https://console.groq.com/keys)에서 프로젝트용 키를 발급합니다. 유료 Developer 플랜으로 업그레이드하지 않습니다.
+3. 프로젝트의 `.env`에 아래 값을 입력합니다. 기존 `.env`가 있으면 덮어쓰지 않고 해당 값만 수정합니다. 실제 키는 로컬 편집기에서 `GROQ_API_KEY`에 입력하고 채팅·Git에 올리지 않습니다.
 
-두 값이 설정되면 상세 화면에 **AI 자동 추출 · Hugging Face**가 표시됩니다. 이 표시는 설정 유무를 뜻하며 실제 연결 성공은 공지를 추출할 때 확인합니다. 공지 제목과 본문이 Hugging Face를 통해 선택한 모델 제공업체에 전송되며 사용 요금이 발생할 수 있습니다. 검토 화면에 **AI 추출 결과**, 추가 조언에는 **AI 제안**이 표시됩니다. 연결 실패 시 오류를 안내하고 **기본 추출 사용**을 선택할 수 있습니다. 실패를 기본 추출 성공으로 바꾸어 표시하지 않습니다.
+```ini
+AI_PROVIDER=groq
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-20b
+```
 
-요청 주소는 `https://router.huggingface.co/v1/chat/completions`입니다. AI 응답은 [Hugging Face 구조화 출력 문서](https://huggingface.co/docs/inference-providers/guides/structured-output)의 JSON Schema 형식을 사용하고 서버에서 다시 검증합니다. 실제 토큰이 없을 때는 연결 요청·응답 형식을 모의 응답으로 검사하며 실제 모델 품질이나 계정 권한까지 검증한 것은 아닙니다.
+4. `APP_PORT=8001 docker compose up --build -d --wait`로 앱을 실행합니다. 설정만 바꿀 때는 `--build`를 생략할 수 있습니다.
+5. 공지 화면의 **무료 API · Groq**를 확인하고 **체크리스트 자동 생성**을 누릅니다. 키가 없으면 화면에 키 설정이 필요하다고 표시하며 기본 추출로 동작합니다. 이 표시는 설정 유무를 뜻하고 실제 인증 성공은 요청할 때 확인합니다.
 
-이전 연결 설정인 `AI_GATEWAY_API_KEY`와 `AI_GATEWAY_MODEL`은 더 이상 사용하지 않습니다. 기존 공지, 검토 결과, 체크리스트와 완료 상태는 그대로 유지됩니다.
+공지 제목과 본문이 Groq에 전송됩니다. Free 플랜에는 분당·일별 요청/토큰 한도가 있으며 실제 계정의 [Limits](https://console.groq.com/dashboard/limits) 화면에서 확인합니다. 한도 초과(429), 키 오류, 응답 오류를 구분해 안내합니다. 자동 재시도나 다른 외부 서비스로의 자동 전환은 하지 않습니다. 오류가 나면 사용자가 **로컬 AI로 생성** 또는 **기본 추출 사용**을 선택할 수 있습니다.
+
+요청 주소는 `https://api.groq.com/openai/v1/chat/completions`이며 JSON Schema 응답을 서버에서 다시 검증합니다. 기존 HF 및 AI Gateway 키는 더 이상 사용하거나 앱 컨테이너에 전달하지 않습니다. API 키가 없는 검증 환경에서는 Groq 응답을 모의 처리하며, 실제 API 연결은 본인 키 설정 후 확인합니다.
+
+## 예비 기능: 무료 로컬 AI
+
+외부 API 토큰 없이 맥에서 [Ollama](https://docs.ollama.com/macos)와 [qwen3:4b](https://ollama.com/library/qwen3:4b)를 실행합니다. 외부 AI API 요금은 없으며, 컴퓨터의 메모리와 전력을 사용합니다. 검증 환경은 Apple M1 · 메모리 16GB입니다.
+
+최초 한 번 Python 3.13으로 실행합니다. 공식 Ollama 0.40.16 실행 파일과 약 2.5GB의 모델을 다운로드합니다.
+
+```bash
+python3.13 scripts/local_ai.py setup
+APP_PORT=8001 docker compose up --build -d --wait
+```
+
+설치 파일의 SHA-256을 확인한 뒤 실행하며, 실행 파일·모델·로그는 Git과 Docker 빌드에서 제외되는 `.local-ai/`에 보관합니다. 설치 도우미는 Ollama의 클라우드 기능을 비활성화하고 `127.0.0.1:11434`에서만 서버를 엽니다. macOS 전역 설치나 자동 시작 등록은 하지 않습니다.
+
+컴퓨터를 재시작한 뒤에는 다음 두 명령으로 다시 켭니다.
+
+```bash
+python3.13 scripts/local_ai.py start
+APP_PORT=8001 docker compose up -d --wait
+```
+
+상태 확인은 `python3.13 scripts/local_ai.py status`, 종료는 `python3.13 scripts/local_ai.py stop`입니다. AI를 종료해도 웹앱의 기본 추출과 저장한 체크리스트는 사용할 수 있습니다.
+
+`.env`의 연결 설정은 다음과 같습니다. Docker Desktop은 `host.docker.internal`을 통해 맥에서 실행 중인 Ollama에 연결합니다.
+
+```ini
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=qwen3:4b
+```
+
+Python으로 앱을 직접 실행할 때는 `OLLAMA_BASE_URL=http://127.0.0.1:11434`로 설정합니다. `OLLAMA_MODEL=`로 비우면 기본 추출만 사용합니다. 기존 HF 토큰이나 유료 AI Gateway 설정은 사용하지 않으며 앱 컨테이너에도 전달하지 않습니다.
+
+상세 화면에서 **로컬 AI로 생성**을 누릅니다. 로컬 AI를 기본으로 쓰려면 `.env`에 `AI_PROVIDER=ollama`를 설정합니다. 검토 화면에 **로컬 AI 추출 결과**가 표시되며 항목·근거를 수정해 저장할 수 있습니다. 실패하면 오류를 보여주고 **기본 추출 사용**을 선택할 수 있습니다. 유료 API로 자동 전환하지 않습니다.
+
+로컬 AI는 본문 최대 6,000자와 보수적인 입력 크기 검사를 적용합니다. 16,384 토큰 문맥에서 출력 공간을 확보하기 위해 UTF-8 바이트 길이로 입력 상한을 확인하므로 한국어 공지는 6,000자보다 짧아도 나누어 등록해야 할 수 있습니다. 긴 공지를 임의로 잘라 분석하지 않습니다. 출력이 끝나지 않은 경우에도 저장하지 않고 오류를 안내합니다.
+
+모델 응답은 Ollama의 [JSON Schema 구조화 출력](https://docs.ollama.com/capabilities/structured-outputs)을 사용하며, 원문 근거와 응답 형식을 서버에서 다시 검증합니다. 처음 실행하거나 모델을 다시 읽는 동안에는 시간이 더 걸릴 수 있습니다. 모델은 유휴 상태가 되면 메모리에서 내려갈 수 있습니다.
+
+맥이 꺼지면 로컬 AI도 멈춥니다. 외부 클라우드에 웹앱을 배포할 때는 그 환경에서 AI를 실행할 위치와 자원을 별도로 정해야 합니다. 기존 AI 추출 결과는 그대로 읽을 수 있으며 새 결과에는 Groq 또는 로컬 실행 정보와 모델 이름이 함께 저장됩니다.
 
 ## 검증
 
 의존성을 설치한 Python 환경에서 `python -m unittest discover -s tests -v`로 추출과 웹 흐름 검사를 실행합니다. 웹 흐름 검사는 `CHECKLIST_TEST_URL`이 있을 때만 실행합니다. 이 검사는 해당 서버에 시험 공지를 생성하므로 별도 테스트 DB를 사용합니다.
 
-Hugging Face 응답부터 검토·저장·완료 체크까지의 DB 통합 검사는 별도 테스트 DB에 연결된 앱 컨테이너에서 `CHECKLIST_DB_TESTS=1`로 활성화합니다. 이 검사는 실제 토큰 대신 모의 API 응답을 사용하며 외부 AI 요청을 보내지 않습니다.
+Groq·로컬 AI 응답부터 검토·저장·완료 체크까지의 DB 통합 검사는 별도 테스트 DB에 연결된 앱 컨테이너에서 `CHECKLIST_DB_TESTS=1`로 활성화합니다. 이 검사는 실제 토큰 대신 모의 API 응답을 사용하며 외부 AI 요청을 보내지 않습니다.
+
+실제 연결 검증에서는 예시 공지의 보고서 PDF·배포 주소·AI 사용 내역 3개 조건을 Groq에서 추출하고, 브라우저에서 검토·저장·완료 체크까지 확인했습니다. 같은 예시의 로컬 AI 추출도 확인했습니다. 사용자 공지를 외부 모델로 시험 전송하지 않고 별도의 합성 예시를 사용했습니다.
 
 ## 구현 순서
 

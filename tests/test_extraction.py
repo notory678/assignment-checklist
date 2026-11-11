@@ -63,45 +63,46 @@ class ExtractionTests(unittest.TestCase):
         result = extract_notice('과제', '보고서는 PDF로 제출하세요.\n보고서는 PDF로 제출하세요.', 'basic')
         self.assertEqual(len(result.items), 2)
 
-    @patch.dict('os.environ', {'HF_TOKEN': '', 'HF_MODEL': ''})
-    def test_ai_without_config_does_not_pretend_to_be_ai(self):
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_MODEL': ''})
+    @patch('extraction.urlopen')
+    def test_disabled_ai_never_calls_any_api(self, call):
+        self.assertFalse(ai_ready())
         with self.assertRaisesRegex(ExtractionError, '연결 설정'):
             extract_notice('공지', '보고서를 제출하세요.', 'ai')
+        call.assert_not_called()
 
-    @patch.dict('os.environ', {'HF_TOKEN': 'test-secret', 'HF_MODEL': 'test/model:provider'})
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://127.0.0.1:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
     @patch('extraction.urlopen')
-    def test_hugging_face_payload_and_grounded_response(self, call):
+    def test_local_payload_and_grounded_response(self, call):
         output = {'items': [{'title': '보고서 준비', 'evidence': '보고서를 제출하세요.', 'kind': 'requirement'}], 'deadline_evidence': ''}
-        call.return_value = io.BytesIO(json.dumps({'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(output)}}]}).encode())
+        call.return_value = io.BytesIO(json.dumps({'done': True, 'done_reason': 'stop', 'message': {'content': json.dumps(output)}}).encode())
         result = extract_notice('공지', '보고서를 제출하세요.', 'ai')
-        self.assertEqual(result.engine, 'ai')
+        self.assertEqual((result.engine, result.provider, result.model), ('ai', 'ollama', 'qwen3:4b'))
         request = call.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(request.full_url, 'https://router.huggingface.co/v1/chat/completions')
+        self.assertEqual(request.full_url, 'http://127.0.0.1:11434/api/chat')
         self.assertEqual(request.get_method(), 'POST')
-        self.assertEqual(request.get_header('Authorization'), 'Bearer test-secret')
-        self.assertEqual(payload['response_format']['type'], 'json_schema')
-        self.assertIs(payload['response_format']['json_schema']['strict'], True)
-        self.assertEqual(payload['response_format']['json_schema']['schema'], ModelOutput.model_json_schema())
+        self.assertIsNone(request.get_header('Authorization'))
+        self.assertEqual(payload['format'], ModelOutput.model_json_schema())
         self.assertIs(payload['stream'], False)
-        self.assertEqual(payload['model'], 'test/model:provider')
+        self.assertIs(payload['think'], False)
+        self.assertEqual(payload['model'], 'qwen3:4b')
         self.assertEqual(json.loads(payload['messages'][1]['content'])['body'], '보고서를 제출하세요.')
 
-    @patch.dict('os.environ', {'HF_TOKEN': 'test-secret', 'HF_MODEL': 'test/model:provider'})
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
     @patch('extraction.urlopen')
-    def test_hugging_face_failure_never_silently_falls_back(self, call):
-        for error in [URLError('offline'), HTTPError('https://example.com', 401, 'unauthorized', {}, None),
-                      HTTPError('https://example.com', 429, 'limited', {}, None)]:
+    def test_local_failure_never_silently_falls_back(self, call):
+        for error in [URLError('offline'), TimeoutError(), HTTPError('http://localhost', 404, 'missing', {}, None),
+                      HTTPError('http://localhost', 503, 'busy', {}, None)]:
             with self.subTest(error=type(error).__name__):
                 call.side_effect = error
-                with self.assertRaises(ExtractionError) as caught:
+                with self.assertRaises(ExtractionError):
                     extract_notice('공지', '보고서를 제출하세요.', 'ai')
-                self.assertNotIn('test-secret', str(caught.exception))
 
-    @patch.dict('os.environ', {'HF_TOKEN': 'test-secret', 'HF_MODEL': 'test/model:provider'})
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
     @patch('extraction.urlopen')
-    def test_invalid_or_partial_hugging_face_results_are_not_saved(self, call):
-        for raw in [b'not json', json.dumps({'choices': [{'finish_reason': 'length', 'message': {'content': '{}'}}]}).encode()]:
+    def test_invalid_or_partial_local_results_are_not_saved(self, call):
+        for raw in [b'not json', b'null', b'{}', json.dumps({'done': True, 'done_reason': 'length', 'message': {'content': '{}'}}).encode()]:
             with self.subTest(raw=raw):
                 call.side_effect = None
                 call.return_value = io.BytesIO(raw)
@@ -109,36 +110,37 @@ class ExtractionTests(unittest.TestCase):
                     extract_notice('공지', '보고서를 제출하세요.', 'ai')
 
     @patch('extraction.urlopen')
-    def test_missing_or_partial_hf_configuration_never_calls_api(self, call):
-        for token, model in [('', ''), ('test-secret', ''), ('', 'test/model'), ('   ', 'test/model')]:
-            with self.subTest(token_present=bool(token.strip()), model_present=bool(model)):
-                with patch.dict('os.environ', {'HF_TOKEN': token, 'HF_MODEL': model}):
-                    self.assertFalse(ai_ready())
+    def test_remote_servers_and_cloud_models_are_rejected(self, call):
+        for endpoint, model in [('https://ollama.com', 'qwen3:4b'), ('http://example.com', 'qwen3:4b'),
+                                ('http://localhost:11434', 'qwen3:4b-cloud'),
+                                ('http://127.0.0.1:11434/other', 'qwen3:4b'),
+                                ('http://user:secret@localhost:11434', 'qwen3:4b')]:
+            with self.subTest(endpoint=endpoint):
+                with patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': endpoint, 'OLLAMA_MODEL': model}):
                     with self.assertRaises(ExtractionError):
                         extract_notice('공지', '보고서를 제출하세요.', 'ai')
         call.assert_not_called()
 
-    @patch.dict('os.environ', {'HF_TOKEN': '', 'HF_MODEL': '', 'AI_GATEWAY_API_KEY': 'old-test-key', 'AI_GATEWAY_MODEL': 'old/model'})
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_MODEL': '', 'HF_TOKEN': 'old-test-key', 'HF_MODEL': 'old/model',
+                              'AI_GATEWAY_API_KEY': 'old-test-key', 'AI_GATEWAY_MODEL': 'old/model'})
     @patch('extraction.urlopen')
-    def test_old_gateway_settings_do_not_enable_hf_or_make_requests(self, call):
+    def test_old_paid_settings_do_not_enable_ai_or_make_requests(self, call):
         self.assertFalse(ai_ready())
         with self.assertRaises(ExtractionError):
             extract_notice('공지', '보고서를 제출하세요.', 'ai')
         call.assert_not_called()
 
-    @patch.dict('os.environ', {'HF_TOKEN': ' test-secret ', 'HF_MODEL': ' test/model:provider '})
+    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
     @patch('extraction.urlopen')
-    def test_hf_error_messages_explain_permissions_quota_and_model(self, call):
-        for code, hint in [(401, '인증'), (403, '호출 권한'), (402, '잔액'), (429, '요청 한도'),
-                           (400, 'JSON Schema'), (404, '모델 설정'), (422, '모델 설정'), (503, '잠시 후')]:
-            with self.subTest(status=code):
-                call.side_effect = HTTPError('https://router.huggingface.co/v1/chat/completions', code, 'error', {}, None)
-                with self.assertRaisesRegex(ExtractionError, hint) as caught:
-                    extract_notice('공지', '보고서를 제출하세요.', 'ai')
-                self.assertNotIn('test-secret', str(caught.exception))
-                request = call.call_args.args[0]
-                self.assertEqual(request.get_header('Authorization'), 'Bearer test-secret')
-                self.assertEqual(json.loads(request.data)['model'], 'test/model:provider')
+    def test_context_budget_never_silently_truncates_notice(self, call):
+        with self.assertRaisesRegex(ExtractionError, '공지를 나누어'):
+            extract_notice('공지', '가' * 6000, 'ai')
+        call.assert_not_called()
+
+    def test_old_drafts_remain_readable(self):
+        from extraction import ExtractionResult
+        result = ExtractionResult.model_validate({'items': [], 'deadline_evidence': '', 'engine': 'ai'})
+        self.assertIsNone(result.provider)
 
 
 if __name__ == '__main__':

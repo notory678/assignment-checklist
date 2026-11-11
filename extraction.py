@@ -1,16 +1,20 @@
-"""Notice extraction, with an offline baseline and optional Hugging Face API support."""
+"""Grounded notice extraction with Groq Free, local Ollama, and offline rules."""
 
 import json
 import re
 from os import getenv
 from typing import Literal
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 MAX_BODY_LENGTH = 30_000
 MAX_ITEMS = 40
+MAX_LOCAL_BODY_LENGTH = 6000
+LOCAL_CONTEXT = 16384
+LOCAL_OUTPUT_TOKENS = 3072
 
 
 class ExtractionError(ValueError):
@@ -33,6 +37,8 @@ class ModelOutput(BaseModel):
 class ExtractionResult(ModelOutput):
     engine: Literal["basic", "ai"]
     warnings: list[str] = Field(default_factory=list)
+    provider: Literal["ollama", "groq"] | None = None
+    model: str | None = None
 
 
 def normalize(text: str) -> str:
@@ -40,7 +46,17 @@ def normalize(text: str) -> str:
 
 
 def ai_ready() -> bool:
-    return bool(getenv("HF_TOKEN", "").strip() and getenv("HF_MODEL", "").strip())
+    if ai_provider() == 'groq':
+        return bool(getenv('GROQ_API_KEY', '').strip())
+    return ai_provider() == 'ollama' and local_ai_ready()
+
+
+def ai_provider() -> str:
+    return getenv('AI_PROVIDER', 'groq').strip().lower()
+
+
+def local_ai_ready() -> bool:
+    return bool(getenv('OLLAMA_MODEL', 'qwen3:4b').strip())
 
 
 DATE = re.compile(
@@ -139,55 +155,111 @@ deadline_evidence는 제출 기한과 날짜가 함께 명시된 원문만 복�
 결과는 제공된 JSON schema를 따르며 최대 40개 항목을 반환한다."""
 
 
-def extract_ai(title: str, body: str) -> ExtractionResult:
-    if not ai_ready():
-        raise ExtractionError("AI 연결 설정이 없습니다. Hugging Face 토큰과 모델을 설정하거나 기본 자동 추출을 사용해 주세요.")
+def extract_local(title: str, body: str) -> ExtractionResult:
+    if not local_ai_ready():
+        raise ExtractionError("AI 연결 설정이 없습니다. 로컬 AI 모델을 설정하거나 기본 자동 추출을 사용해 주세요.")
+    base_url = getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+    address = urlsplit(base_url)
+    if (address.scheme != "http" or address.hostname not in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+            or address.username or address.password or address.query or address.fragment or address.path):
+        raise ExtractionError("로컬 AI 주소는 이 컴퓨터의 Ollama 주소로 설정해 주세요.")
+    model = getenv("OLLAMA_MODEL", "qwen3:4b").strip()
+    if re.search(r"(?:^|[-:])cloud(?:$|[-:])", model, re.I):
+        raise ExtractionError("무료 로컬 모드에서는 내려받은 모델만 사용할 수 있습니다.")
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT + "\nJSON 스키마:\n" + json.dumps(ModelOutput.model_json_schema(), ensure_ascii=False)},
+        {"role": "user", "content": json.dumps({"title": title, "body": body}, ensure_ascii=False)},
+    ]
+    # UTF-8 byte length is a conservative upper bound for the input token budget.
+    input_budget = sum(len(message["content"].encode("utf-8")) for message in messages) + 512
+    if len(body) > MAX_LOCAL_BODY_LENGTH or input_budget + LOCAL_OUTPUT_TOKENS > LOCAL_CONTEXT:
+        raise ExtractionError("로컬 AI가 한 번에 읽기에 공지가 깁니다. 공지를 나누어 등록하거나 기본 추출을 사용해 주세요.")
     payload = {
-        "model": getenv("HF_MODEL").strip(),
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                     {"role": "user", "content": json.dumps({"title": title, "body": body}, ensure_ascii=False)}],
-        "stream": False,
-        "max_tokens": 6000,
-        "response_format": {"type": "json_schema", "json_schema": {
-            "name": "notice_checklist", "schema": ModelOutput.model_json_schema(), "strict": True,
-        }},
+        "model": model, "messages": messages, "stream": False, "think": False,
+        "format": ModelOutput.model_json_schema(), "keep_alive": "5m",
+        "options": {"temperature": 0, "num_ctx": LOCAL_CONTEXT, "num_predict": LOCAL_OUTPUT_TOKENS},
     }
-    request = Request(
-        "https://router.huggingface.co/v1/chat/completions",
-        data=json.dumps(payload).encode(),
-        headers={"Authorization": "Bearer " + getenv("HF_TOKEN").strip(),
-                 "Content-Type": "application/json"}, method="POST",
-    )
+    request = Request(base_url + "/api/chat", data=json.dumps(payload).encode(),
+                      headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urlopen(request, timeout=35) as response:
+        with urlopen(request, timeout=180) as response:
             raw = response.read(1_000_001)
         if len(raw) > 1_000_000:
             raise ExtractionError("AI 응답이 너무 큽니다. 공지를 나누어 다시 시도해 주세요.")
-        choice = json.loads(raw)["choices"][0]
-        if choice.get("finish_reason") != "stop":
-            raise ExtractionError("AI 응답이 완료되지 않았습니다. 다시 시도하거나 기본 추출을 사용해 주세요.")
-        output = ModelOutput.model_validate_json(choice["message"]["content"])
+        result = json.loads(raw)
+        if result.get("done") is not True or result.get("done_reason") != "stop":
+            raise ExtractionError("로컬 AI 응답이 완료되지 않았습니다. 공지를 나누거나 기본 추출을 사용해 주세요.")
+        output = ModelOutput.model_validate_json(result["message"]["content"])
     except ExtractionError:
         raise
     except HTTPError as exc:
-        if exc.code == 401:
-            message = "Hugging Face 인증에 실패했습니다. 서버에 설정한 토큰을 확인해 주세요."
-        elif exc.code == 403:
-            message = "Hugging Face 토큰의 Inference Providers 호출 권한과 선택한 모델의 접근 권한을 확인해 주세요."
-        elif exc.code == 402:
-            message = "Hugging Face 사용 잔액 또는 계정 한도를 확인해 주세요. 기본 추출도 사용할 수 있습니다."
-        elif exc.code == 429:
-            message = "Hugging Face 요청 한도에 도달했습니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
-        elif exc.code in (400, 404, 422):
-            message = "Hugging Face 모델 설정을 확인해 주세요. 선택한 모델과 제공업체가 Chat Completions와 JSON Schema 출력을 지원해야 합니다."
+        if exc.code == 404:
+            message = "로컬 AI 모델이 준비되어 있지 않습니다. 모델 설치를 완료하거나 기본 추출을 사용해 주세요."
+        elif exc.code == 503:
+            message = "로컬 AI가 다른 요청을 처리 중입니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
         else:
-            message = "Hugging Face 요청을 처리하지 못했습니다. 잠시 후 다시 시도하거나 기본 추출을 사용해 주세요."
+            message = "로컬 AI 요청을 처리하지 못했습니다. Ollama 실행 상태를 확인하거나 기본 추출을 사용해 주세요."
         raise ExtractionError(message) from exc
     except (URLError, TimeoutError, OSError) as exc:
-        raise ExtractionError("Hugging Face 서버에 연결하지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
-    except (ValueError, ValidationError, KeyError, IndexError, TypeError) as exc:
-        raise ExtractionError("AI 응답을 읽지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
-    return validate_output(output, body, "ai")
+        raise ExtractionError("로컬 AI에 연결하지 못했거나 응답 시간이 초과되었습니다. Ollama를 켜고 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
+    except (ValueError, ValidationError, KeyError, IndexError, TypeError, AttributeError) as exc:
+        raise ExtractionError("로컬 AI 응답을 읽지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.") from exc
+    return validate_output(output, body, "ai").model_copy(update={"provider": "ollama", "model": model})
+
+
+def extract_groq(title: str, body: str) -> ExtractionResult:
+    key = getenv('GROQ_API_KEY', '').strip()
+    if not key:
+        raise ExtractionError('AI 연결 설정이 없습니다. Groq API 키를 설정하거나 로컬 AI·기본 추출을 사용해 주세요.')
+    model = getenv('GROQ_MODEL', 'openai/gpt-oss-20b').strip()
+    if model not in {'openai/gpt-oss-20b', 'openai/gpt-oss-120b'}:
+        raise ExtractionError('Groq 모델은 구조화 출력을 지원하는 GPT-OSS 20B 또는 120B로 설정해 주세요.')
+    payload = {
+        'model': model,
+        'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
+                     {'role': 'user', 'content': json.dumps({'title': title, 'body': body}, ensure_ascii=False)}],
+        'stream': False, 'reasoning_effort': 'low', 'max_completion_tokens': 3072,
+        'response_format': {'type': 'json_schema', 'json_schema': {
+            'name': 'notice_checklist', 'strict': True, 'schema': ModelOutput.model_json_schema(),
+        }},
+    }
+    request = Request('https://api.groq.com/openai/v1/chat/completions', data=json.dumps(payload).encode(),
+                      headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
+                               'User-Agent': 'assignment-checklist/1.0'}, method='POST')
+    try:
+        with urlopen(request, timeout=45) as response:
+            raw = response.read(1_000_001)
+        if len(raw) > 1_000_000:
+            raise ExtractionError('AI 응답이 너무 큽니다. 공지를 나누어 다시 시도해 주세요.')
+        choice = json.loads(raw)['choices'][0]
+        if choice.get('finish_reason') != 'stop':
+            raise ExtractionError('Groq 응답이 완료되지 않았습니다. 공지를 나누거나 로컬 AI·기본 추출을 사용해 주세요.')
+        output = ModelOutput.model_validate_json(choice['message']['content'])
+    except ExtractionError:
+        raise
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            message = 'Groq API 키와 모델 접근 권한을 확인해 주세요.'
+        elif exc.code == 429:
+            message = 'Groq 무료 사용 한도에 도달했습니다. 잠시 후 다시 시도하거나 로컬 AI·기본 추출을 사용해 주세요.'
+        elif exc.code in (400, 404, 413, 422):
+            message = 'Groq가 요청을 처리하지 못했습니다. 모델 설정을 확인하거나 공지를 나누어 다시 시도해 주세요.'
+        else:
+            message = 'Groq 서비스가 요청을 처리하지 못했습니다. 로컬 AI나 기본 추출을 사용할 수 있습니다.'
+        raise ExtractionError(message) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise ExtractionError('Groq에 연결하지 못했습니다. 다시 시도하거나 로컬 AI·기본 추출을 사용해 주세요.') from exc
+    except (ValueError, ValidationError, KeyError, IndexError, TypeError, AttributeError) as exc:
+        raise ExtractionError('Groq 응답을 읽지 못했습니다. 다시 시도하거나 로컬 AI·기본 추출을 사용해 주세요.') from exc
+    return validate_output(output, body, 'ai').model_copy(update={'provider': 'groq', 'model': model})
+
+
+def extract_ai(title: str, body: str) -> ExtractionResult:
+    if ai_provider() == 'groq':
+        return extract_groq(title, body)
+    if ai_provider() == 'ollama':
+        return extract_local(title, body)
+    raise ExtractionError('AI 연결 설정을 확인해 주세요. Groq 또는 Ollama를 선택할 수 있습니다.')
 
 
 def extract_notice(title: str, body: str, engine: str) -> ExtractionResult:
@@ -195,6 +267,8 @@ def extract_notice(title: str, body: str, engine: str) -> ExtractionResult:
         raise ExtractionError("자동 추출은 공지 본문 30,000자까지 지원합니다. 공지를 나누어 등록해 주세요.")
     if engine == "ai":
         return extract_ai(title, body)
+    if engine == 'local':
+        return extract_local(title, body)
     if engine == "basic":
         result = extract_basic(body)
         return validate_output(result, body, "basic")

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from extraction import Candidate, ExtractionError, ai_ready, extract_notice
+from extraction import Candidate, ExtractionError, ai_provider, ai_ready, local_ai_ready, extract_notice
 
 from store import (
     Assignment,
@@ -51,6 +51,8 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "error": error,
             "extraction_error": extraction_error,
             "ai_ready": ai_ready(),
+            "ai_provider": ai_provider(),
+            "local_ai_ready": local_ai_ready(),
         },
         status_code=422 if error or extraction_error else 200,
     )

@@ -25,7 +25,7 @@
       <h2 id="review-heading">저장할 항목 선택</h2>
       <span class="badge">{{ draft.result.items | length }}개 후보</span>
     </div>
-    <p class="engine-label">{{ 'AI 추출 결과' if draft.result.engine == 'ai' else '기본 추출 결과 · AI 미사용' }}</p>
+    <p class="engine-label">{% if draft.result.provider == 'groq' %}무료 API 추출 결과 · Groq{% elif draft.result.provider == 'ollama' %}로컬 AI 추출 결과{% elif draft.result.engine == 'ai' %}AI 추출 결과{% else %}기본 추출 결과 · AI 미사용{% endif %}</p>
     <p class="hint">항목 이름과 근거를 수정할 수 있습니다. 제외할 항목은 선택을 해제하세요. 제안 항목은 기본으로 선택하지 않습니다.</p>
     {% if draft.result.engine == 'basic' %}<p class="notice-message">정해진 표현으로 찾은 결과입니다. 선택 조건이나 문장 맥락을 놓칠 수 있으니 원문과 비교해 주세요.</p>{% endif %}
     {% for warning in draft.result.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
