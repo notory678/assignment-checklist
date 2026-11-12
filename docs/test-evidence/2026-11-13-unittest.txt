@@ -1,3 +1,6 @@
+test_groq_result_review_save_and_rate_limit (test_ai_flow.AIFlowTests.test_groq_result_review_save_and_rate_limit) ... ok
+test_groq_result_review_save_completion_and_failure (test_ai_flow.AIFlowTests.test_groq_result_review_save_completion_and_failure) ... ok
+test_pdf_ai_evidence_pages_are_derived_again_after_review_edits (test_ai_flow.AIFlowTests.test_pdf_ai_evidence_pages_are_derived_again_after_review_edits) ... ok
 test_completed_item_is_highlighted_and_can_be_cleared (test_checklist_edit_web.ChecklistEditWebTests.test_completed_item_is_highlighted_and_can_be_cleared)
 TC15 (R05) ... ok
 test_completed_items_move_to_the_bottom_and_fetch_toggle_returns_counts (test_checklist_edit_web.ChecklistEditWebTests.test_completed_items_move_to_the_bottom_and_fetch_toggle_returns_counts)
@@ -18,21 +21,18 @@ test_new_notice_body_has_an_upper_limit (test_checklist_edit_web.ChecklistEditWe
 R01: notice bodies longer than the extraction limit are rejected, not truncated. ... ok
 test_saved_item_edit_keeps_completion_and_preparation (test_checklist_edit_web.ChecklistEditWebTests.test_saved_item_edit_keeps_completion_and_preparation)
 TC14 (R04): saved items can be renamed and re-quoted; invalid edits change nothing. ... ok
-test_context_budget_never_silently_truncates_notice (test_extraction.ExtractionTests.test_context_budget_never_silently_truncates_notice) ... ok
 test_deadline_is_not_invented_or_inferred_from_event_date (test_extraction.ExtractionTests.test_deadline_is_not_invented_or_inferred_from_event_date) ... ok
 test_deadline_raw_date_is_preserved (test_extraction.ExtractionTests.test_deadline_raw_date_is_preserved) ... ok
 test_disabled_ai_never_calls_any_api (test_extraction.ExtractionTests.test_disabled_ai_never_calls_any_api) ... ok
 test_four_submission_requirements_with_exact_quotes (test_extraction.ExtractionTests.test_four_submission_requirements_with_exact_quotes) ... ok
-test_invalid_or_partial_local_results_are_not_saved (test_extraction.ExtractionTests.test_invalid_or_partial_local_results_are_not_saved) ... ok
 test_length_limit_and_no_implicit_truncation (test_extraction.ExtractionTests.test_length_limit_and_no_implicit_truncation) ... ok
-test_local_failure_never_silently_falls_back (test_extraction.ExtractionTests.test_local_failure_never_silently_falls_back) ... ok
-test_local_payload_and_grounded_response (test_extraction.ExtractionTests.test_local_payload_and_grounded_response) ... ok
+test_local_ai_engine_is_removed (test_extraction.ExtractionTests.test_local_ai_engine_is_removed) ... ok
 test_mixed_sentence_becomes_note_and_requirements_stay_separate (test_extraction.ExtractionTests.test_mixed_sentence_becomes_note_and_requirements_stay_separate) ... ok
 test_old_drafts_remain_readable (test_extraction.ExtractionTests.test_old_drafts_remain_readable) ... ok
+test_old_local_drafts_remain_readable (test_extraction.ExtractionTests.test_old_local_drafts_remain_readable) ... ok
 test_old_paid_settings_do_not_enable_ai_or_make_requests (test_extraction.ExtractionTests.test_old_paid_settings_do_not_enable_ai_or_make_requests) ... ok
 test_optional_negative_and_example_are_not_requirements (test_extraction.ExtractionTests.test_optional_negative_and_example_are_not_requirements) ... ok
 test_pdf_does_not_imply_an_unmentioned_report (test_extraction.ExtractionTests.test_pdf_does_not_imply_an_unmentioned_report) ... ok
-test_remote_servers_and_cloud_models_are_rejected (test_extraction.ExtractionTests.test_remote_servers_and_cloud_models_are_rejected) ... ok
 test_repeated_sentence_is_deduplicated (test_extraction.ExtractionTests.test_repeated_sentence_is_deduplicated) ... ok
 test_ungrounded_ai_note_is_removed (test_extraction.ExtractionTests.test_ungrounded_ai_note_is_removed) ... ok
 test_ungrounded_ai_requirement_and_deadline_removed (test_extraction.ExtractionTests.test_ungrounded_ai_requirement_and_deadline_removed) ... ok
@@ -63,9 +63,6 @@ test_only_real_pages_with_verified_quotes_are_recommended (test_groq.PdfPageReco
 test_quotes_tolerate_line_joins_quotes_and_final_period (test_groq.PdfPageRecommendationTests.test_quotes_tolerate_line_joins_quotes_and_final_period) ... ok
 test_rate_limit_is_reported_once (test_groq.PdfPageRecommendationTests.test_rate_limit_is_reported_once) ... ok
 test_request_too_large_is_explained (test_groq.PdfPageRecommendationTests.test_request_too_large_is_explained) ... ok
-test_groq_result_review_save_and_local_backup (test_local_ai_flow.LocalAIFlowTests.test_groq_result_review_save_and_local_backup) ... ok
-test_local_result_review_save_completion_and_failure (test_local_ai_flow.LocalAIFlowTests.test_local_result_review_save_completion_and_failure) ... ok
-test_pdf_ai_evidence_pages_are_derived_again_after_review_edits (test_local_ai_flow.LocalAIFlowTests.test_pdf_ai_evidence_pages_are_derived_again_after_review_edits) ... ok
 test_evidence_locations_repeated_cross_page_missing_and_no_quote (test_pdf.PdfInputTests.test_evidence_locations_repeated_cross_page_missing_and_no_quote) ... ok
 test_korean_pages_and_empty_page_keep_original_numbers (test_pdf.PdfInputTests.test_korean_pages_and_empty_page_keep_original_numbers) ... ok
 test_parser_timeout_has_recovery_message (test_pdf.PdfInputTests.test_parser_timeout_has_recovery_message) ... ok
@@ -92,6 +89,6 @@ test_no_selection_and_invalid_ids_do_not_save (test_web.WebFlowTests.test_no_sel
 test_repeat_and_concurrent_saves_are_deduplicated (test_web.WebFlowTests.test_repeat_and_concurrent_saves_are_deduplicated) ... ok
 
 ----------------------------------------------------------------------
-Ran 75 tests in 8.634s
+Ran 72 tests in 8.389s
 
 OK

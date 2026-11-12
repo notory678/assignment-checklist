@@ -83,7 +83,7 @@ class ExtractionTests(unittest.TestCase):
         result = extract_notice('과제', '보고서는 PDF로 제출하세요.\n보고서는 PDF로 제출하세요.', 'basic')
         self.assertEqual(len(result.items), 2)
 
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_MODEL': ''})
+    @patch.dict('os.environ', {'GROQ_API_KEY': ''})
     @patch('extraction.urlopen')
     def test_disabled_ai_never_calls_any_api(self, call):
         self.assertFalse(ai_ready())
@@ -91,57 +91,15 @@ class ExtractionTests(unittest.TestCase):
             extract_notice('공지', '보고서를 제출하세요.', 'ai')
         call.assert_not_called()
 
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://127.0.0.1:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
+    @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key', 'OLLAMA_MODEL': 'qwen3:4b', 'AI_PROVIDER': 'ollama'})
     @patch('extraction.urlopen')
-    def test_local_payload_and_grounded_response(self, call):
-        output = {'items': [{'title': '보고서 준비', 'evidence': '보고서를 제출하세요.', 'kind': 'requirement'}], 'deadline_evidence': ''}
-        call.return_value = io.BytesIO(json.dumps({'done': True, 'done_reason': 'stop', 'message': {'content': json.dumps(output)}}).encode())
-        result = extract_notice('공지', '보고서를 제출하세요.', 'ai')
-        self.assertEqual((result.engine, result.provider, result.model), ('ai', 'ollama', 'qwen3:4b'))
-        request = call.call_args.args[0]
-        payload = json.loads(request.data)
-        self.assertEqual(request.full_url, 'http://127.0.0.1:11434/api/chat')
-        self.assertEqual(request.get_method(), 'POST')
-        self.assertIsNone(request.get_header('Authorization'))
-        self.assertEqual(payload['format'], ModelOutput.model_json_schema())
-        self.assertIs(payload['stream'], False)
-        self.assertIs(payload['think'], False)
-        self.assertEqual(payload['model'], 'qwen3:4b')
-        self.assertEqual(json.loads(payload['messages'][1]['content'])['body'], '보고서를 제출하세요.')
-
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
-    @patch('extraction.urlopen')
-    def test_local_failure_never_silently_falls_back(self, call):
-        for error in [URLError('offline'), TimeoutError(), HTTPError('http://localhost', 404, 'missing', {}, None),
-                      HTTPError('http://localhost', 503, 'busy', {}, None)]:
-            with self.subTest(error=type(error).__name__):
-                call.side_effect = error
-                with self.assertRaises(ExtractionError):
-                    extract_notice('공지', '보고서를 제출하세요.', 'ai')
-
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
-    @patch('extraction.urlopen')
-    def test_invalid_or_partial_local_results_are_not_saved(self, call):
-        for raw in [b'not json', b'null', b'{}', json.dumps({'done': True, 'done_reason': 'length', 'message': {'content': '{}'}}).encode()]:
-            with self.subTest(raw=raw):
-                call.side_effect = None
-                call.return_value = io.BytesIO(raw)
-                with self.assertRaises(ExtractionError):
-                    extract_notice('공지', '보고서를 제출하세요.', 'ai')
-
-    @patch('extraction.urlopen')
-    def test_remote_servers_and_cloud_models_are_rejected(self, call):
-        for endpoint, model in [('https://ollama.com', 'qwen3:4b'), ('http://example.com', 'qwen3:4b'),
-                                ('http://localhost:11434', 'qwen3:4b-cloud'),
-                                ('http://127.0.0.1:11434/other', 'qwen3:4b'),
-                                ('http://user:secret@localhost:11434', 'qwen3:4b')]:
-            with self.subTest(endpoint=endpoint):
-                with patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': endpoint, 'OLLAMA_MODEL': model}):
-                    with self.assertRaises(ExtractionError):
-                        extract_notice('공지', '보고서를 제출하세요.', 'ai')
+    def test_local_ai_engine_is_removed(self, call):
+        # The local Ollama option was removed; old settings or form values cannot reach it.
+        with self.assertRaisesRegex(ExtractionError, '지원하지 않는 추출 방식'):
+            extract_notice('공지', '보고서를 제출하세요.', 'local')
         call.assert_not_called()
 
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_MODEL': '', 'HF_TOKEN': 'old-test-key', 'HF_MODEL': 'old/model',
+    @patch.dict('os.environ', {'GROQ_API_KEY': '', 'HF_TOKEN': 'old-test-key', 'HF_MODEL': 'old/model',
                               'AI_GATEWAY_API_KEY': 'old-test-key', 'AI_GATEWAY_MODEL': 'old/model'})
     @patch('extraction.urlopen')
     def test_old_paid_settings_do_not_enable_ai_or_make_requests(self, call):
@@ -150,12 +108,10 @@ class ExtractionTests(unittest.TestCase):
             extract_notice('공지', '보고서를 제출하세요.', 'ai')
         call.assert_not_called()
 
-    @patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'qwen3:4b'})
-    @patch('extraction.urlopen')
-    def test_context_budget_never_silently_truncates_notice(self, call):
-        with self.assertRaisesRegex(ExtractionError, '공지를 나누어'):
-            extract_notice('공지', '가' * 6000, 'ai')
-        call.assert_not_called()
+    def test_old_local_drafts_remain_readable(self):
+        from extraction import ExtractionResult
+        result = ExtractionResult.model_validate({'items': [], 'deadline_evidence': '', 'engine': 'ai', 'provider': 'ollama'})
+        self.assertEqual(result.provider, 'ollama')
 
     def test_old_drafts_remain_readable(self):
         from extraction import ExtractionResult

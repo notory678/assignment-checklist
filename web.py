@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from extraction import (Candidate, ExtractionError, ai_provider, ai_ready, groq_ready, local_ai_ready, extract_notice,
+from extraction import (Candidate, ExtractionError, ai_ready, groq_ready, extract_notice,
                         recommend_pdf_pages)
 from pdf_input import MAX_PDF_BYTES, PdfInputError, evidence_page_numbers, extract_pdf, join_pages
 
@@ -112,8 +112,6 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "appended": appended,
             "item_deleted": item_deleted,
             "ai_ready": ai_ready(),
-            "ai_provider": ai_provider(),
-            "local_ai_ready": local_ai_ready(),
         },
         status_code=422 if error or extraction_error or preparation_error or edit_error else 200,
     )

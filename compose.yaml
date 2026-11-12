@@ -6,11 +6,8 @@ services:
       PGDATABASE: checklist
       PGUSER: checklist
       PGPASSWORD: ${POSTGRES_PASSWORD:-checklist_dev}
-      AI_PROVIDER: ${AI_PROVIDER:-groq}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL-qwen3:4b}
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     depends_on:

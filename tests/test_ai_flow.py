@@ -1,4 +1,4 @@
-"""Exercise local Ollama extraction through web handlers and an isolated real DB.
+"""Exercise Groq extraction through web handlers and an isolated real DB.
 
 Only enable CHECKLIST_DB_TESTS in a disposable test stack. Model responses are mocked.
 """
@@ -13,7 +13,7 @@ from uuid import UUID
 
 
 @unittest.skipUnless(os.getenv('CHECKLIST_DB_TESTS') == '1', 'requires isolated CHECKLIST_DB_TESTS=1')
-class LocalAIFlowTests(unittest.TestCase):
+class AIFlowTests(unittest.TestCase):
     def test_pdf_ai_evidence_pages_are_derived_again_after_review_edits(self):
         import store
         import web
@@ -43,7 +43,7 @@ class LocalAIFlowTests(unittest.TestCase):
         self.assertIn('href="#pdf-page-4"', detail)
         self.assertNotIn('href="#pdf-page-2"', detail)
 
-    def test_groq_result_review_save_and_local_backup(self):
+    def test_groq_result_review_save_and_rate_limit(self):
         import store
         import web
         from main import app
@@ -55,7 +55,7 @@ class LocalAIFlowTests(unittest.TestCase):
                            'headers': [], 'server': ('localhost', 8000), 'router': app.router})
         output = {'items': [{'title': 'PDF 준비', 'evidence': 'PDF로 제출하세요.', 'kind': 'requirement'}], 'deadline_evidence': ''}
         raw = json.dumps({'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(output)}}]}).encode()
-        with patch.dict('os.environ', {'AI_PROVIDER': 'groq', 'GROQ_API_KEY': 'fake-key', 'GROQ_MODEL': 'openai/gpt-oss-20b', 'OLLAMA_MODEL': 'qwen3:4b'}):
+        with patch.dict('os.environ', {'GROQ_API_KEY': 'fake-key', 'GROQ_MODEL': 'openai/gpt-oss-20b'}):
             with patch('extraction.urlopen', return_value=io.BytesIO(raw)):
                 response = web.generate_checklist(request, assignment.id, engine='ai')
             draft_id = UUID(response.headers['location'].rsplit('/', 1)[-1])
@@ -70,11 +70,11 @@ class LocalAIFlowTests(unittest.TestCase):
             html = response.body.decode()
             self.assertEqual(response.status_code, 422)
             self.assertIn('무료 사용 한도', html)
-            self.assertIn('로컬 AI로 생성', html)
+            self.assertNotIn('로컬 AI', html)  # no local AI option any more
             self.assertNotIn('fake-key', html)
             self.assertEqual(len(store.list_checklist(assignment.id)), 1)
 
-    def test_local_result_review_save_completion_and_failure(self):
+    def test_groq_result_review_save_completion_and_failure(self):
         import store
         import web
         from main import app
@@ -82,7 +82,7 @@ class LocalAIFlowTests(unittest.TestCase):
 
         store.initialize_database()
         assignment = store.create_assignment(store.AssignmentCreate(
-            title='local Ollama 연동 검증', body='보고서를 PDF로 제출하세요.\n제출 기한: 11월 18일',
+            title='Groq 저장·실패 검증', body='보고서를 PDF로 제출하세요.\n제출 기한: 11월 18일',
         ))
         request = Request({'type': 'http', 'method': 'POST', 'scheme': 'http', 'path': '/',
                            'headers': [], 'server': ('localhost', 8000), 'router': app.router})
@@ -91,11 +91,11 @@ class LocalAIFlowTests(unittest.TestCase):
             {'title': '영상 제출', 'evidence': '영상을 제출하세요.', 'kind': 'requirement'},
             {'title': '파일 확인', 'evidence': '', 'kind': 'suggestion'},
         ], 'deadline_evidence': '제출 기한: 11월 18일'}
-        raw = json.dumps({'done': True, 'done_reason': 'stop', 'message': {'content': json.dumps(output)}}).encode()
-        with patch.dict('os.environ', {'AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://127.0.0.1:11434', 'OLLAMA_MODEL': 'qwen3:4b'}):
+        raw = json.dumps({'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(output)}}]}).encode()
+        with patch.dict('os.environ', {'GROQ_API_KEY': 'fake-key', 'GROQ_MODEL': 'openai/gpt-oss-20b'}):
             detail = web.render_detail(request, assignment).body.decode()
-            self.assertIn('무료 로컬 AI · Ollama', detail)
-            self.assertIn('이 컴퓨터에서 공지를 분석', detail)
+            self.assertIn('무료 API · Groq', detail)
+            self.assertIn('공지 제목과 본문을 Groq로 전송', detail)
             self.assertNotIn('hf-test-token', detail)
 
             with patch('extraction.urlopen', return_value=io.BytesIO(raw)):
@@ -104,12 +104,12 @@ class LocalAIFlowTests(unittest.TestCase):
             draft_id = UUID(response.headers['location'].rsplit('/', 1)[-1])
             draft = store.get_extraction_draft(assignment.id, draft_id)
             self.assertEqual(draft.result.engine, 'ai')
-            self.assertEqual(draft.result.provider, 'ollama')
+            self.assertEqual(draft.result.provider, 'groq')
             self.assertEqual(len(draft.result.items), 2)
             self.assertTrue(draft.result.warnings)
             self.assertEqual(store.list_checklist(assignment.id), [])
             review = web.review_extraction(request, assignment.id, draft_id).body.decode()
-            self.assertIn('AI 추출 결과', review)
+            self.assertIn('무료 API 추출 결과 · Groq', review)
             self.assertIn('AI 제안', review)
             saved = web.save_review(request, assignment.id, draft_id, selected=['0', '1'],
                                     titles=[item.title for item in draft.result.items],
@@ -129,10 +129,10 @@ class LocalAIFlowTests(unittest.TestCase):
             with store.database() as connection:
                 before = connection.execute('SELECT COUNT(*) AS count FROM extraction_drafts WHERE assignment_id = %s',
                                             (assignment.id,)).fetchone()['count']
-            with patch('extraction.urlopen', side_effect=HTTPError('http://localhost:11434/api/chat', 404, 'missing', {}, None)):
+            with patch('extraction.urlopen', side_effect=HTTPError('https://api.groq.com/openai/v1/chat/completions', 503, 'down', {}, None)):
                 failure = web.generate_checklist(request, assignment.id, engine='ai')
             self.assertEqual(failure.status_code, 422)
-            self.assertIn('모델이 준비되어 있지', failure.body.decode())
+            self.assertIn('Groq 서비스가 요청을 처리하지 못했습니다', failure.body.decode())
             self.assertEqual(len(store.list_checklist(assignment.id)), 2)
             with store.database() as connection:
                 after = connection.execute('SELECT COUNT(*) AS count FROM extraction_drafts WHERE assignment_id = %s',
