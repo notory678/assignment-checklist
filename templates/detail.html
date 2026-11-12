@@ -26,7 +26,7 @@
       <h3>제출 기한</h3>
       {% if assignment.deadline_evidence %}
       <p class="evidence">{{ assignment.deadline_evidence }}</p>
-      {{ page_links(assignment.source_pages, assignment.deadline_evidence) }}
+      {{ page_links(assignment, assignment.deadline_evidence) }}
       {% elif assignment.extraction_reviewed %}
       <p class="muted">미기재</p>
       {% else %}
@@ -92,7 +92,7 @@
           <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('비고 · 선택·예시·참고' if item.kind == 'note' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안')) }}</span>
           <span class="kind-badge done" {% if not item.completed %}hidden{% endif %}>완료</span>
           {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
-          {{ page_links(assignment.source_pages, item.evidence) }}
+          {{ page_links(assignment, item.evidence) }}
           {% if saved_item_id == item.id %}<p class="save-feedback" role="status">준비 내용을 저장했습니다.</p>{% endif %}
           {% if edited_item_id == item.id %}<p class="save-feedback" role="status">항목을 수정했습니다.</p>{% endif %}
           <details class="preparation-editor item-editor" {% if editing_item %}open{% endif %}>

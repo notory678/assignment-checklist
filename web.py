@@ -40,14 +40,42 @@ templates = Jinja2Templates(directory=Path(__file__).with_name("templates"))
 templates.env.globals['evidence_pages'] = evidence_page_numbers
 
 
-def appended_text(assignment: Assignment) -> str:
-    """Text added after a PDF notice was saved (follow-up notices)."""
-    if not assignment.source_pages:
-        return ''
-    return assignment.body[len(join_pages(assignment.source_pages)):].strip()
+def source_segments(assignment: Assignment) -> list[dict]:
+    """Split the notice body into plain text and PDF page blocks, in body order.
+
+    The first PDF (if any) keeps the anchors pdf-page-N; appended PDFs use pdf-a{k}-page-N."""
+    body, position, segments = assignment.body, 0, []
+    if assignment.source_pages:
+        segments.append({'kind': 'pdf', 'anchor': 'pdf-page-', 'heading': '', 'filename': assignment.source_filename,
+                         'pages': assignment.source_pages})
+        position = len(join_pages(assignment.source_pages))
+    for index, appended in enumerate(assignment.appended_pdfs, 1):
+        block = appended.heading + '\n' + join_pages(appended.pages)
+        found = body.find(block, position)
+        if found == -1:
+            continue
+        if body[position:found].strip():
+            segments.append({'kind': 'text', 'text': body[position:found].strip(), 'original': position == 0})
+        segments.append({'kind': 'pdf', 'anchor': f'pdf-a{index}-page-', 'heading': appended.heading,
+                         'filename': appended.filename, 'pages': appended.pages})
+        position = found + len(block)
+    if body[position:].strip():
+        segments.append({'kind': 'text', 'text': body[position:].strip(), 'original': position == 0})
+    return segments
 
 
-templates.env.globals['appended_text'] = appended_text
+def evidence_locations(assignment: Assignment, evidence: str) -> list[dict]:
+    """Page links for a quote: the first PDF as 'PDF N페이지', appended PDFs as '파일명 N페이지'."""
+    links = [{'label': f'PDF {number}페이지', 'anchor': f'pdf-page-{number}'}
+             for number in evidence_page_numbers(assignment.source_pages, evidence)]
+    for index, appended in enumerate(assignment.appended_pdfs, 1):
+        links += [{'label': f'{appended.filename} {number}페이지', 'anchor': f'pdf-a{index}-page-{number}'}
+                  for number in evidence_page_numbers(appended.pages, evidence)]
+    return links
+
+
+templates.env.globals['source_segments'] = source_segments
+templates.env.globals['evidence_locations'] = evidence_locations
 
 
 def render_home(request: Request, *, title="", body="", append_to="", error=None, pdf_error=None, deleted=False):

@@ -37,12 +37,19 @@ class AssignmentSummary(BaseModel):
     source_filename: str = ''
 
 
+class AppendedPdf(BaseModel):
+    filename: str
+    heading: str
+    pages: list[PdfPage]
+
+
 class Assignment(AssignmentSummary):
     body: str
     deadline_evidence: str = ''
     extraction_reviewed: bool = False
     source_pages: list[PdfPage] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
+    appended_pdfs: list[AppendedPdf] = Field(default_factory=list)
 
 
 class ChecklistItem(BaseModel):
@@ -99,7 +106,7 @@ def get_assignment(assignment_id: int) -> Assignment:
     with database() as connection:
         row = connection.execute(
             """SELECT id, title, body, created_at, deadline_evidence, extraction_reviewed,
-                      source_filename, source_pages, source_warnings FROM assignments WHERE id = %s""",
+                      source_filename, source_pages, source_warnings, appended_pdfs FROM assignments WHERE id = %s""",
             (assignment_id,),
         ).fetchone()
     if row is None:
@@ -226,6 +233,9 @@ def append_pdf_import(import_id: UUID, assignment_id: int, title: str, selected:
         source = f'({draft.filename} {numbers}페이지)'
         heading = f'{APPENDIX_MARK} {title} {source}' if title else f'{APPENDIX_MARK} {source}'
         _append_body(connection, assignment_id, heading, join_pages(pages))
+        appended = AppendedPdf(filename=draft.filename, heading=heading, pages=pages)
+        connection.execute('UPDATE assignments SET appended_pdfs = appended_pdfs || %s WHERE id = %s',
+                           (Jsonb([appended.model_dump()]), assignment_id))
         connection.execute('UPDATE pdf_imports SET assignment_id = %s WHERE id = %s', (assignment_id, import_id))
     return assignment_id
 

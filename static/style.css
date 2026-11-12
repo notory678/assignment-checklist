@@ -204,3 +204,4 @@ select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-r
 .intro .danger-zone { margin-top: 10px; font-size: .9rem; }
 .recommendation.unverified { border-left-color: #c79a3a; background: #fff8e8; }
 [hidden] { display: none !important; }
+.appendix-heading { margin-top: 14px; font-size: .9rem; color: var(--accent-hover); }

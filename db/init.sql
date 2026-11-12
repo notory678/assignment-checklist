@@ -57,3 +57,6 @@ ALTER TABLE checklist_items ADD CONSTRAINT checklist_items_kind_check
 
 -- AI page recommendation for an unsaved PDF preview.
 ALTER TABLE pdf_imports ADD COLUMN IF NOT EXISTS recommendation JSONB;
+
+-- PDF pages appended to a notice as follow-up notices, kept so their quotes can link to a page.
+ALTER TABLE assignments ADD COLUMN IF NOT EXISTS appended_pdfs JSONB NOT NULL DEFAULT '[]';

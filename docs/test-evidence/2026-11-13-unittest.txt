@@ -43,6 +43,8 @@ test_notes_are_unselected_by_default_and_can_be_saved (test_feature_flow.Feature
 TC18 (R02) ... ok
 test_pdf_append_errors_keep_the_notice_unchanged (test_feature_flow.FeatureFlowTests.test_pdf_append_errors_keep_the_notice_unchanged)
 TC21 ... ok
+test_pdf_appended_to_a_text_notice_gets_page_links (test_feature_flow.FeatureFlowTests.test_pdf_appended_to_a_text_notice_gets_page_links)
+TC22: quotes from an appended PDF show its file name and page, also on the review screen. ... ok
 test_pdf_pages_can_be_appended_to_an_existing_notice_once (test_feature_flow.FeatureFlowTests.test_pdf_pages_can_be_appended_to_an_existing_notice_once)
 TC21: chosen PDF pages become a follow-up notice; items, completion and the first PDF stay intact. ... ok
 test_recommendation_button_hidden_without_key (test_feature_flow.FeatureFlowTests.test_recommendation_button_hidden_without_key) ... ok
@@ -90,6 +92,6 @@ test_no_selection_and_invalid_ids_do_not_save (test_web.WebFlowTests.test_no_sel
 test_repeat_and_concurrent_saves_are_deduplicated (test_web.WebFlowTests.test_repeat_and_concurrent_saves_are_deduplicated) ... ok
 
 ----------------------------------------------------------------------
-Ran 74 tests in 7.815s
+Ran 75 tests in 8.634s
 
 OK

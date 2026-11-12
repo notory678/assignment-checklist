@@ -165,10 +165,14 @@ class FeatureFlowTests(unittest.TestCase):
         self.assertEqual(len(store.list_assignments()), count_before)  # no new notice
         self.assertTrue(store.list_checklist(assignment_id)[0].completed)
         detail = web.notice_detail(self.request, assignment_id).body.decode()
-        self.assertIn('<h3>추가 공지</h3>', detail)
+        self.assertIn('<h3 class="appendix-heading">[추가 공지] 발표 안내 (추가안내.pdf 2페이지)</h3>', detail)
         self.assertIn('href="#pdf-page-2"', detail)  # original PDF page links still work
-        # The appended sentence is a valid quote now.
+        # The appended sentence is a valid quote now, and its quote links to the appended PDF page.
         store.add_checklist_item(assignment, '발표 자료', '발표 자료는 PDF로 제출하세요.')
+        detail = web.notice_detail(self.request, assignment_id).body.decode()
+        self.assertIn('id="pdf-a1-page-2"', detail)
+        self.assertIn('<a href="#pdf-a1-page-2">추가안내.pdf 2페이지</a>', detail)
+        self.assertIn('<a href="#pdf-page-2">PDF 2페이지</a>', detail)  # the first PDF keeps its own links
 
         # Re-submitting the same preview does not append twice, and the preview now opens the notice.
         again = web.save_pdf_notice(self.request, follow_up, title='발표 안내', selected=['2'], append_to=str(assignment_id))
@@ -195,6 +199,32 @@ class FeatureFlowTests(unittest.TestCase):
         self.assertEqual(store.get_assignment(target.id).body, '가' * 29_990)
         # The preview is still unsaved and can be stored as a new notice.
         self.assertEqual(web.preview_pdf(self.request, import_id).status_code, 200)
+
+
+    def test_pdf_appended_to_a_text_notice_gets_page_links(self):
+        """TC22: quotes from an appended PDF show its file name and page, also on the review screen."""
+        import store
+        import web
+        from pdf_input import PdfDocument, PdfPage
+        assignment = store.create_assignment(store.AssignmentCreate(title='텍스트 공지', body='소스 코드는 ZIP으로 첨부하세요.'))
+        first = store.create_pdf_import(PdfDocument(filename='1차.pdf', pages=[
+            PdfPage(number=1, text='표지'), PdfPage(number=3, text='보고서는 PDF로 제출하세요.')]))
+        second = store.create_pdf_import(PdfDocument(filename='2차.pdf', pages=[
+            PdfPage(number=5, text='배포 주소를 포함하세요.')]))
+        store.append_pdf_import(first, assignment.id, '', ['3'])
+        store.append_pdf_import(second, assignment.id, '배포', ['5'])
+        assignment = store.get_assignment(assignment.id)
+        self.assertEqual([pdf.filename for pdf in assignment.appended_pdfs], ['1차.pdf', '2차.pdf'])
+        segments = web.source_segments(assignment)
+        self.assertEqual([segment['kind'] for segment in segments], ['text', 'pdf', 'pdf'])
+        self.assertTrue(segments[0]['original'])
+
+        response = web.generate_checklist(self.request, assignment.id, engine='basic')
+        draft_id = UUID(response.headers['location'].rsplit('/', 1)[-1])
+        review = web.review_extraction(self.request, assignment.id, draft_id).body.decode()
+        self.assertIn('<a href="#pdf-a1-page-3">1차.pdf 3페이지</a>', review)
+        self.assertIn('<a href="#pdf-a2-page-5">2차.pdf 5페이지</a>', review)
+        self.assertNotIn('<h3>추가 공지</h3>', review)  # the original text is not labelled as a follow-up
 
 
 if __name__ == '__main__':
