@@ -55,10 +55,11 @@ class FeatureFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         call.assert_called_once()
         preview = web.preview_pdf(self.request, import_id).body.decode()
-        self.assertIn('Groq가 1개 페이지를 추천했습니다', preview)
+        self.assertIn('Groq가 2개 페이지를 추천했습니다. 근거 문장을 확인한 1개 페이지만', preview)
         self.assertIn('보고서 PDF 제출 조건', preview)
-        self.assertIn('근거 문장을 찾을 수 없는 추천을 제외했습니다', preview)
-        self.assertEqual(preview.count('checked'), 1)
+        self.assertIn('AI 추천 · 근거 미확인', preview)
+        self.assertIn('3페이지는 AI가 제시한 근거 문장을 원문에서 찾지 못해', preview)
+        self.assertEqual(preview.count('checked'), 1)  # unverified page 3 is shown but not preselected
         self.assertIn('value="2" data-text-length', preview.split('checked')[0][-200:])
 
         assignment_id = store.save_pdf_import(import_id, '강의 과제', ['2'])

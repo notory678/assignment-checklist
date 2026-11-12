@@ -21,8 +21,9 @@
   <div class="extraction-box recommend-box">
     <h3>AI로 과제 관련 페이지 찾기</h3>
     {% if draft.recommendation %}
+      {% set verified_pages = draft.recommendation.pages | selectattr('verified') | list %}
       {% if draft.recommendation.pages %}
-      <p class="save-feedback" role="status">Groq가 {{ draft.recommendation.pages | length }}개 페이지를 추천했습니다. 추천 페이지만 선택해 두었으니 원본과 비교해 확정해 주세요.</p>
+      <p class="save-feedback" role="status">Groq가 {{ draft.recommendation.pages | length }}개 페이지를 추천했습니다. 근거 문장을 확인한 {{ verified_pages | length }}개 페이지만 선택해 두었으니 원본과 비교해 확정해 주세요.</p>
       {% else %}
       <p class="notice-message" role="status">과제 조건이 있는 페이지를 찾지 못했습니다. 페이지를 직접 선택해 주세요.</p>
       {% endif %}
@@ -58,10 +59,14 @@
         </legend>
         {% if page.number in recommendations %}
         {% set rec = recommendations[page.number] %}
-        <div class="recommendation">
-          <span class="kind-badge requirement">AI 추천</span>
+        <div class="recommendation{{ '' if rec.verified else ' unverified' }}">
+          <span class="kind-badge {{ 'requirement' if rec.verified else 'suggestion' }}">{{ 'AI 추천' if rec.verified else 'AI 추천 · 근거 미확인' }}</span>
           <p>{{ rec.summary }}</p>
+          {% if rec.verified %}
           <p class="evidence">근거 문장: {{ rec.evidence }}</p>
+          {% else %}
+          <p class="evidence">AI가 제시한 문장(원문에서 찾지 못함): {{ rec.evidence }}</p>
+          {% endif %}
         </div>
         {% endif %}
         {% if page.text %}<div class="notice-copy pdf-preview-text">{{ page.text }}</div>{% else %}<p class="hint">원본을 확인해 주세요. 이미지에 있는 글자는 아직 읽지 않습니다.</p>{% endif %}

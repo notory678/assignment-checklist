@@ -5,7 +5,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 from extraction import (ExtractionError, ModelOutput, PageRecommendationOutput, RECOMMEND_TOTAL_CHARS,
-                        ai_ready, extract_notice, recommend_pdf_pages)
+                        ai_ready, extract_notice, locate_quote, recommend_pdf_pages)
 
 
 @patch.dict('os.environ', {'AI_PROVIDER': 'groq', 'GROQ_API_KEY': 'test-key', 'GROQ_MODEL': 'openai/gpt-oss-20b'})
@@ -88,8 +88,10 @@ class PdfPageRecommendationTests(unittest.TestCase):
             {'number': 2, 'summary': '중복', 'evidence': '배포 주소를 포함하세요.'},
         ]})
         result = recommend_pdf_pages(self.pages)
-        self.assertEqual([(page.number, page.evidence) for page in result.pages], [(2, '보고서는 PDF로 제출하세요.')])
+        self.assertEqual([(page.number, page.evidence, page.verified) for page in result.pages],
+                         [(2, '보고서는 PDF로 제출하세요.', True), (4, '영상을 제출하세요.', False)])
         self.assertEqual(len(result.warnings), 2)
+        self.assertTrue(any('4페이지' in warning for warning in result.warnings))
         payload = json.loads(call.call_args.args[0].data)
         sent = json.loads(payload['messages'][1]['content'])['pages']
         self.assertEqual([page['number'] for page in sent], [1, 2, 4])  # empty page 3 is never sent
@@ -97,6 +99,18 @@ class PdfPageRecommendationTests(unittest.TestCase):
         # Stay inside Groq Free's 8,000 tokens per minute: short page text and a small answer budget.
         self.assertEqual(payload['max_completion_tokens'], 1536)
         call.assert_called_once()
+
+    def test_quotes_tolerate_line_joins_quotes_and_final_period(self):
+        page = '과제 안내\n보고서는 PDF로 제출하세요.\n배포 주소를 포함하세요.'
+        for quote in ['보고서는 PDF로 제출하세요. 배포 주소를 포함하세요.', '“보고서는 PDF로 제출하세요.”',
+                      '보고서는 PDF로 제출하세요', '보고서는  PDF로\n제출하세요.']:
+            with self.subTest(quote=quote):
+                self.assertIsNotNone(locate_quote(page, quote))
+        self.assertEqual(locate_quote(page, '보고서는 PDF로 제출하세요. 배포 주소를 포함하세요.'),
+                         '보고서는 PDF로 제출하세요.\n배포 주소를 포함하세요.')
+        for quote in ['보고서는 워드로 제출하세요.', 'PDF', '']:
+            with self.subTest(quote=quote):
+                self.assertIsNone(locate_quote(page, quote))
 
     @patch('extraction.urlopen')
     def test_long_pages_are_shortened_with_a_warning(self, call):

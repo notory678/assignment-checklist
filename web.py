@@ -153,7 +153,8 @@ def upload_pdf(request: Request, file: Annotated[UploadFile | None, File()] = No
 
 
 def render_pdf_preview(request: Request, draft, *, title=None, selected=None, error=None):
-    recommended = {str(page.number) for page in draft.recommendation.pages} if draft.recommendation else None
+    recommended = ({str(page.number) for page in draft.recommendation.pages if page.verified}
+                   if draft.recommendation else None)
     if selected is None:
         selected = recommended if recommended else {str(page.number) for page in draft.pages if page.text}
     return templates.TemplateResponse(request, 'pdf_preview.html', {

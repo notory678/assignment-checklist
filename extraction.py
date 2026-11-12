@@ -2,6 +2,7 @@
 
 import json
 import re
+import unicodedata
 from os import getenv
 from typing import Literal
 from urllib.error import HTTPError, URLError
@@ -307,8 +308,15 @@ class PageRecommendationOutput(BaseModel):
     pages: list[PageRecommendation] = Field(max_length=50)
 
 
+class RecommendedPage(BaseModel):
+    number: int
+    summary: str = ''
+    evidence: str = ''
+    verified: bool = True  # False: the AI quote was not found on the page, so the page is not preselected
+
+
 class PdfRecommendation(BaseModel):
-    pages: list[PageRecommendation] = Field(default_factory=list)
+    pages: list[RecommendedPage] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     model: str = ''
 
@@ -318,8 +326,26 @@ RECOMMEND_PROMPT = """강의 자료 PDF에서 과제 제출 조건이 적힌 페
 제출물, 형식, 기한, 제출 방법, 평가 조건처럼 과제 수행자가 지켜야 할 내용이 있는 페이지만 고른다.
 수업 내용 설명, 목차, 참고 문헌만 있는 페이지는 고르지 않는다.
 각 페이지마다 summary에는 그 페이지의 과제 관련 내용을 한 문장으로 짧게 요약하고,
-evidence에는 그 페이지 text에서 과제와 가장 관련된 문장을 연속된 원문 그대로 하나 복사한다.
+evidence에는 그 페이지 text에서 과제와 가장 관련된 한 줄을 골라 글자 그대로 복사한다. 여러 줄을 합치거나 말을 바꾸거나 따옴표를 붙이지 않는다.
 number는 입력의 페이지 번호를 그대로 쓴다. 관련 페이지가 없으면 pages는 빈 배열로 반환한다."""
+
+
+def locate_quote(text: str, quote: str) -> str | None:
+    """Find an AI quote in page text, ignoring whitespace, line breaks, wrapping quotes and a final period.
+
+    Returns the matching span of the page text, or None when the quote is not in the page."""
+    text = unicodedata.normalize('NFKC', text)
+    quote = unicodedata.normalize('NFKC', quote).strip().strip('"\'“”‘’「」『』').strip()
+    chars = [(index, char) for index, char in enumerate(text) if not char.isspace()]
+    compact = ''.join(char for _, char in chars)
+    for candidate in (quote, quote.rstrip('.。!?…')):
+        needle = ''.join(char for char in candidate if not char.isspace())
+        if len(needle) < 4:
+            continue
+        position = compact.find(needle)
+        if position != -1:
+            return text[chars[position][0]:chars[position + len(needle) - 1][0] + 1]
+    return None
 
 
 def recommend_pdf_pages(pages: list[tuple[int, str]]) -> PdfRecommendation:
@@ -347,15 +373,18 @@ def recommend_pdf_pages(pages: list[tuple[int, str]]) -> PdfRecommendation:
     full_text = dict(readable)
     kept, seen = [], set()
     for page in output.pages:
-        evidence = normalize(page.evidence).strip()
         if page.number not in full_text or page.number in seen:
             warnings.append('PDF에 없는 페이지 번호를 추천에서 제외했습니다.')
             continue
-        if not evidence or evidence not in full_text[page.number]:
-            warnings.append('해당 페이지에서 근거 문장을 찾을 수 없는 추천을 제외했습니다.')
-            continue
         seen.add(page.number)
-        kept.append(PageRecommendation(number=page.number, summary=page.summary.strip(), evidence=evidence))
+        quote = locate_quote(full_text[page.number], page.evidence)
+        if quote is None:
+            warnings.append(f'{page.number}페이지는 AI가 제시한 근거 문장을 원문에서 찾지 못해 자동으로 선택하지 않았습니다. '
+                            '원문을 보고 직접 판단해 주세요.')
+            kept.append(RecommendedPage(number=page.number, summary=page.summary.strip(),
+                                        evidence=page.evidence.strip()[:300], verified=False))
+            continue
+        kept.append(RecommendedPage(number=page.number, summary=page.summary.strip(), evidence=quote))
     kept.sort(key=lambda page: page.number)
     return PdfRecommendation(pages=kept, warnings=list(dict.fromkeys(warnings)), model=model)
 
