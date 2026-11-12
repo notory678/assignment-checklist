@@ -91,18 +91,45 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
     )
 
 
+def existing_candidates(assignment_id: int, items) -> set[str]:
+    """Indexes of candidates already in the checklist (same quote and kind, or same title and kind)."""
+    saved = list_checklist(assignment_id)
+    quotes = {(item.kind, item.evidence.strip()) for item in saved if item.evidence.strip()}
+    titles = {(item.kind, item.title.strip().casefold()) for item in saved}
+    return {str(i) for i, item in enumerate(items)
+            if (item.kind, item.evidence.strip()) in quotes or (item.kind, item.title.strip().casefold()) in titles}
+
+
 def render_review(request: Request, assignment: Assignment, draft, *, titles=None, evidences=None,
-                  selected=None, error=None):
+                  selected=None, error=None, appended=False):
     items = draft.result.items
+    existing = existing_candidates(assignment.id, items)
+    if selected is None:
+        selected = {str(i) for i, item in enumerate(items) if item.kind == 'requirement' and str(i) not in existing}
     return templates.TemplateResponse(
         request, 'review.html', {
             'assignment': assignment, 'draft': draft,
             'titles': titles if titles is not None else [item.title for item in items],
             'evidences': evidences if evidences is not None else [item.evidence for item in items],
-            'selected': selected if selected is not None else {str(i) for i, item in enumerate(items) if item.kind == 'requirement'},
+            'selected': selected,
+            'existing': existing,
+            'appended': appended,
             'error': error,
         }, status_code=422 if error else 200,
     )
+
+
+def review_after_append(request: Request, assignment_id: int):
+    """After a follow-up notice is attached, show the new conditions right away."""
+    assignment = get_assignment(assignment_id)
+    try:
+        result = extract_notice(assignment.title, assignment.body, 'ai' if ai_ready() else 'basic')
+    except ExtractionError:
+        url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(appended=1)
+        return RedirectResponse(str(url), status_code=303)
+    draft_id = create_extraction_draft(assignment_id, result)
+    url = request.url_for('review_extraction', assignment_id=assignment_id, draft_id=draft_id).include_query_params(appended=1)
+    return RedirectResponse(str(url), status_code=303)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -126,8 +153,7 @@ def save_notice(
             append_notice(assignment_id, title, body)
         except ValueError as exc:
             return render_home(request, title=title, body=body, append_to=append_to, error=str(exc))
-        url = request.url_for("notice_detail", assignment_id=assignment_id).include_query_params(appended=1)
-        return RedirectResponse(str(url), status_code=303)
+        return review_after_append(request, assignment_id)
     try:
         payload = AssignmentCreate(title=title, body=body)
     except ValidationError:
@@ -206,8 +232,7 @@ def save_pdf_notice(request: Request, import_id: UUID,
         except ValueError as exc:
             return render_pdf_preview(request, draft, title=title, selected=set(selected), error=str(exc),
                                       append_to=append_to)
-        url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(appended=1)
-        return RedirectResponse(str(url), status_code=303)
+        return review_after_append(request, assignment_id)
     try:
         assignment_id = save_pdf_import(import_id, title, selected)
     except ValueError as exc:
@@ -313,12 +338,12 @@ def generate_checklist(request: Request, assignment_id: int, engine: Annotated[s
 
 
 @router.get('/notices/{assignment_id}/extractions/{draft_id}', response_class=HTMLResponse)
-def review_extraction(request: Request, assignment_id: int, draft_id: UUID):
+def review_extraction(request: Request, assignment_id: int, draft_id: UUID, appended: int | None = None):
     assignment = get_assignment(assignment_id)
     draft = get_extraction_draft(assignment_id, draft_id)
     if draft.saved_at:
         return RedirectResponse(request.url_for('notice_detail', assignment_id=assignment_id), status_code=303)
-    return render_review(request, assignment, draft)
+    return render_review(request, assignment, draft, appended=bool(appended))
 
 
 @router.post('/notices/{assignment_id}/extractions/{draft_id}/save', response_class=HTMLResponse)
@@ -340,7 +365,8 @@ def save_review(
             raise ValueError('저장할 항목을 확인한 뒤 다시 선택해 주세요.')
         reviewed = [Candidate(title=titles[i], evidence=evidences[i], kind=item.kind)
                     for i, item in enumerate(draft.result.items) if str(i) in set(selected)]
-        save_extraction_review(assignment, draft_id, reviewed)
+        nothing_new = not reviewed and bool(existing_candidates(assignment_id, draft.result.items))
+        save_extraction_review(assignment, draft_id, reviewed, allow_empty=nothing_new)
     except (ValueError, ValidationError) as exc:
         error = '항목 이름은 1~200자, 근거는 4,000자 이내로 입력해 주세요.' if isinstance(exc, ValidationError) else str(exc)
         if len(titles) != len(draft.result.items) or len(evidences) != len(draft.result.items):

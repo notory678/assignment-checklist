@@ -147,7 +147,19 @@ class FeatureFlowTests(unittest.TestCase):
         response = web.save_pdf_notice(self.request, follow_up, title='발표 안내', selected=['2'],
                                        append_to=str(assignment_id))
         self.assertEqual(response.status_code, 303)
-        self.assertIn(f'/notices/{assignment_id}?appended=1', response.headers['location'])
+        # Appending goes straight to the review of the updated notice.
+        location = response.headers['location']
+        self.assertIn(f'/notices/{assignment_id}/extractions/', location)
+        self.assertTrue(location.endswith('?appended=1'))
+        draft_id = UUID(location.split('/extractions/')[1].split('?')[0])
+        review = web.review_extraction(self.request, assignment_id, draft_id, appended=1).body.decode()
+        self.assertIn('추가 공지를 붙였습니다', review)
+        self.assertIn('이미 체크리스트에 있음', review)  # '보고서는 PDF로 제출하세요.' is already saved
+        draft = store.get_extraction_draft(assignment_id, draft_id)
+        new_index = next(i for i, item in enumerate(draft.result.items) if '발표 자료' in item.evidence)
+        old_index = next(i for i, item in enumerate(draft.result.items) if item.evidence == '보고서는 PDF로 제출하세요.')
+        self.assertIn(f'id="select-{new_index}" name="selected" value="{new_index}" checked', review)
+        self.assertNotIn(f'id="select-{old_index}" name="selected" value="{old_index}" checked', review)
         assignment = store.get_assignment(assignment_id)
         self.assertTrue(assignment.body.endswith('[추가 공지] 발표 안내 (추가안내.pdf 2페이지)\n발표 자료는 PDF로 제출하세요.'))
         self.assertEqual(len(store.list_assignments()), count_before)  # no new notice

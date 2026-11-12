@@ -300,8 +300,10 @@ def validate_review_item(assignment: Assignment, item: Candidate) -> Candidate:
     return Candidate(title=title, evidence=evidence, kind=item.kind)
 
 
-def save_extraction_review(assignment: Assignment, draft_id: UUID, items: list[Candidate]) -> None:
-    if not items:
+def save_extraction_review(assignment: Assignment, draft_id: UUID, items: list[Candidate],
+                           allow_empty: bool = False) -> None:
+    """allow_empty: the candidates are already in the checklist, so saving nothing just closes the review."""
+    if not items and not allow_empty:
         raise ValueError('저장할 항목을 하나 이상 선택해 주세요.')
     validated = [validate_review_item(assignment, item) for item in items]
     with database() as connection:

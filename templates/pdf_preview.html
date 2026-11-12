@@ -47,7 +47,7 @@
         <option value="{{ assignment.id }}" {% if append_to == assignment.id | string %}selected{% endif %}>기존 공지에 추가: {{ assignment.title }}</option>
         {% endfor %}
       </select>
-      <p class="hint" id="pdf-append-hint">기존 공지에 추가하면 고른 페이지를 그 공지 끝에 ‘[추가 공지]’로 덧붙이고, 기존 체크리스트와 완료 상태는 그대로 둡니다. 저장 후 자동 생성을 다시 실행하면 새 조건이 후보로 나옵니다.</p>
+      <p class="hint" id="pdf-append-hint">기존 공지에 추가하면 고른 페이지를 그 공지 끝에 ‘[추가 공지]’로 덧붙이고, 기존 체크리스트와 완료 상태는 그대로 둡니다. 저장하면 바로 추출 결과로 이동해 새 조건만 선택해 둡니다.</p>
     </div>
     <div>
       <label for="pdf-title">공지 제목 <span class="hint">(추가 공지일 때는 선택)</span></label>

@@ -30,6 +30,7 @@
     <p class="engine-label">{% if draft.result.provider == 'groq' %}무료 API 추출 결과 · Groq{% elif draft.result.provider == 'ollama' %}로컬 AI 추출 결과{% elif draft.result.engine == 'ai' %}AI 추출 결과{% else %}기본 추출 결과 · AI 미사용{% endif %}</p>
     <p class="hint">항목 이름과 근거를 수정할 수 있습니다. 제외할 항목은 선택을 해제하세요. 제안과 비고 항목은 기본으로 선택하지 않습니다.</p>
     {% if draft.result.engine == 'basic' %}<p class="notice-message">정해진 표현으로 찾은 결과입니다. 선택 조건이나 문장 맥락을 놓칠 수 있으니 원문과 비교해 주세요.</p>{% endif %}
+    {% if appended %}<p class="save-feedback" role="status">추가 공지를 붙였습니다. 기존 체크리스트에 없는 새 조건만 선택해 두었으니 확인하고 저장하세요. 기존 항목과 완료 상태는 그대로입니다.</p>{% endif %}
     {% for warning in draft.result.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
@@ -45,6 +46,7 @@
               항목 {{ loop.index }} 저장
             </label>
           </legend>
+          {% if i | string in existing %}<span class="kind-badge done">이미 체크리스트에 있음</span>{% endif %}
           <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('비고 · 선택·예시·참고' if item.kind == 'note' else ('AI 제안' if draft.result.engine == 'ai' else '준비 제안')) }}</span>
           <label for="title-{{ i }}">항목 {{ loop.index }} 이름</label>
           <input id="title-{{ i }}" name="titles" value="{{ titles[i] }}" maxlength="200">
@@ -60,7 +62,7 @@
         </fieldset>
         {% endfor %}
       </div>
-      <p class="hint save-hint">선택한 항목만 기존 체크리스트에 추가합니다. 같은 항목은 중복 저장하지 않습니다.</p>
+      <p class="hint save-hint">선택한 항목만 기존 체크리스트에 추가합니다. 같은 항목은 중복 저장하지 않습니다.{% if existing %} 새로 추가할 항목이 없으면 선택하지 않고 저장해도 됩니다.{% endif %}</p>
       <button class="primary" type="submit">선택한 항목 저장</button>
     </form>
     {% else %}

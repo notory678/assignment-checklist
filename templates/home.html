@@ -21,7 +21,7 @@
           <option value="{{ assignment.id }}" {% if append_to == assignment.id | string %}selected{% endif %}>기존 공지에 추가: {{ assignment.title }}</option>
           {% endfor %}
         </select>
-        <p class="hint" id="append-hint">기존 공지에 추가하면 본문 끝에 ‘[추가 공지]’로 덧붙이고, 기존 체크리스트와 완료 상태는 그대로 둡니다.</p>
+        <p class="hint" id="append-hint">기존 공지에 추가하면 본문 끝에 ‘[추가 공지]’로 덧붙이고 바로 추출 결과를 보여 줍니다. 기존 체크리스트와 완료 상태는 그대로 둡니다.</p>
       </div>
       <div>
         <label for="title">공지 제목 <span class="hint">(추가 공지일 때는 선택)</span></label>
