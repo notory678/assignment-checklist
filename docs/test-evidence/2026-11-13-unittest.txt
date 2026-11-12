@@ -1,5 +1,9 @@
 test_completed_item_is_highlighted_and_can_be_cleared (test_checklist_edit_web.ChecklistEditWebTests.test_completed_item_is_highlighted_and_can_be_cleared)
 TC15 (R05) ... ok
+test_delete_notice_removes_its_checklist_only (test_checklist_edit_web.ChecklistEditWebTests.test_delete_notice_removes_its_checklist_only)
+TC19: deleting a notice removes its items; other notices stay. ... ok
+test_delete_one_item_keeps_the_others (test_checklist_edit_web.ChecklistEditWebTests.test_delete_one_item_keeps_the_others)
+TC19: deleting an item removes only that item; other notices cannot delete it. ... ok
 test_edit_rejects_other_notice_and_blank_title (test_checklist_edit_web.ChecklistEditWebTests.test_edit_rejects_other_notice_and_blank_title)
 TC14 (R04, R11) ... ok
 test_follow_up_notice_errors_do_not_change_the_notice (test_checklist_edit_web.ChecklistEditWebTests.test_follow_up_notice_errors_do_not_change_the_notice)
@@ -78,6 +82,6 @@ test_no_selection_and_invalid_ids_do_not_save (test_web.WebFlowTests.test_no_sel
 test_repeat_and_concurrent_saves_are_deduplicated (test_web.WebFlowTests.test_repeat_and_concurrent_saves_are_deduplicated) ... ok
 
 ----------------------------------------------------------------------
-Ran 67 tests in 7.328s
+Ran 69 tests in 7.926s
 
 OK

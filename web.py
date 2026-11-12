@@ -30,6 +30,8 @@ from store import (
     save_pdf_recommendation,
     update_checklist_item,
     append_notice,
+    delete_checklist_item,
+    delete_assignment,
 )
 
 router = APIRouter(include_in_schema=False)
@@ -47,19 +49,19 @@ def appended_text(assignment: Assignment) -> str:
 templates.env.globals['appended_text'] = appended_text
 
 
-def render_home(request: Request, *, title="", body="", append_to="", error=None, pdf_error=None):
+def render_home(request: Request, *, title="", body="", append_to="", error=None, pdf_error=None, deleted=False):
     return templates.TemplateResponse(
         request,
         "home.html",
         {"assignments": list_assignments(), "title": title, "body": body, "append_to": append_to,
-         "error": error, "pdf_error": pdf_error},
+         "error": error, "pdf_error": pdf_error, "deleted": deleted},
         status_code=422 if error or pdf_error else 200,
     )
 
 
 def render_detail(request: Request, assignment: Assignment, *, title="", evidence="", error=None,
                   extraction_error=None, preparation_error=None, preparation_values=None, saved_item_id=None,
-                  edit_error=None, edit_values=None, edited_item_id=None, appended=False):
+                  edit_error=None, edit_values=None, edited_item_id=None, appended=False, item_deleted=False):
     items = list_checklist(assignment.id)
     return templates.TemplateResponse(
         request,
@@ -79,6 +81,7 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "edit_values": edit_values,
             "edited_item_id": edited_item_id,
             "appended": appended,
+            "item_deleted": item_deleted,
             "ai_ready": ai_ready(),
             "ai_provider": ai_provider(),
             "local_ai_ready": local_ai_ready(),
@@ -102,8 +105,8 @@ def render_review(request: Request, assignment: Assignment, draft, *, titles=Non
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return render_home(request)
+def home(request: Request, deleted: int | None = None):
+    return render_home(request, deleted=bool(deleted))
 
 
 @router.post("/notices", response_class=HTMLResponse)
@@ -197,9 +200,22 @@ def save_pdf_notice(request: Request, import_id: UUID,
 
 @router.get("/notices/{assignment_id}", response_class=HTMLResponse)
 def notice_detail(request: Request, assignment_id: int, saved: int | None = None, edited: int | None = None,
-                  appended: int | None = None):
+                  appended: int | None = None, deleted: int | None = None):
     return render_detail(request, get_assignment(assignment_id), saved_item_id=saved, edited_item_id=edited,
-                         appended=bool(appended))
+                         appended=bool(appended), item_deleted=bool(deleted))
+
+
+@router.post('/notices/{assignment_id}/delete')
+def remove_notice(request: Request, assignment_id: int):
+    delete_assignment(assignment_id)
+    return RedirectResponse(str(request.url_for('home').include_query_params(deleted=1)), status_code=303)
+
+
+@router.post('/notices/{assignment_id}/checklist/{item_id}/delete')
+def remove_checklist_item(request: Request, assignment_id: int, item_id: int):
+    delete_checklist_item(assignment_id, item_id)
+    url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(deleted=1)
+    return RedirectResponse(str(url) + '#checklist-heading', status_code=303)
 
 
 @router.post("/notices/{assignment_id}/checklist", response_class=HTMLResponse)

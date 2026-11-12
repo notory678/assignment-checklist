@@ -127,5 +127,46 @@ class ChecklistEditWebTests(unittest.TestCase):
         self.assertEqual(code, 422)
 
 
+    def test_delete_one_item_keeps_the_others(self):
+        """TC19: deleting an item removes only that item; other notices cannot delete it."""
+        notice_id = self.create_notice(BODY)
+        other = self.create_notice(BODY)
+        self.add_item(notice_id, '보고서', '보고서는 PDF로 제출하세요.')
+        self.add_item(notice_id, '배포 주소', '배포 주소를 포함하세요.')
+        first, second = self.item_routes(notice_id, r'checklist/\d+/delete')
+        completion = self.item_routes(notice_id, 'completion')[1]
+        self.request(completion, [('completed', 'true')])
+        item_id = first.split('/')[-2]
+        self.assertEqual(self.request(f'/notices/{other}/checklist/{item_id}/delete', [])[0], 404)
+        self.assertEqual(self.request(f'/notices/{notice_id}/checklist/{item_id}/delete')[0], 405)  # GET never deletes
+
+        code, _, headers = self.request(first, [])
+        self.assertEqual(code, 303)
+        self.assertIn('deleted=1', headers['Location'])
+        detail = self.detail(notice_id)
+        self.assertNotIn('>보고서</p>', detail)
+        self.assertIn('>배포 주소</p>', detail)
+        self.assertIn('1/1 완료', detail)
+        self.assertIn('항목을 삭제했습니다', self.request(urlsplit(headers['Location']).path + '?deleted=1')[1])
+        self.assertEqual(self.request(first, [])[0], 404)
+
+    def test_delete_notice_removes_its_checklist_only(self):
+        """TC19: deleting a notice removes its items; other notices stay."""
+        notice_id = self.create_notice(BODY)
+        other = self.create_notice(BODY)
+        self.add_item(notice_id, '보고서', '보고서는 PDF로 제출하세요.')
+        self.add_item(other, '남는 항목', '보고서는 PDF로 제출하세요.')
+        item_delete = self.item_routes(notice_id, r'checklist/\d+/delete')[0]
+        code, _, headers = self.request(f'/notices/{notice_id}/delete', [])
+        self.assertEqual(code, 303)
+        self.assertEqual(urlsplit(headers['Location']).query, 'deleted=1')
+        self.assertIn('공지와 체크리스트를 삭제했습니다', self.request('/?deleted=1')[1])
+        self.assertEqual(self.request(f'/notices/{notice_id}')[0], 404)
+        self.assertEqual(self.request(f'/assignments/{notice_id}')[0], 404)
+        self.assertEqual(self.request(item_delete, [])[0], 404)
+        self.assertEqual(self.request(f'/notices/{notice_id}/delete', [])[0], 404)
+        self.assertIn('남는 항목', self.detail(other))
+
+
 if __name__ == '__main__':
     unittest.main()

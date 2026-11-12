@@ -197,3 +197,8 @@ button:disabled { opacity: .65; cursor: wait; }
 .recommend-box { margin-block: 14px; }
 .recommendation { margin-bottom: 8px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; font-size: .9rem; }
 select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: white; }
+.danger-zone summary { color: #a33a2b; }
+.danger-zone .hint { margin-block: 6px; }
+.danger-button { padding: 7px 12px; border: 1px solid #a33a2b; border-radius: 8px; background: white; color: #a33a2b; font: inherit; font-weight: 650; cursor: pointer; }
+.danger-button:hover { background: #a33a2b; color: white; }
+.intro .danger-zone { margin-top: 10px; font-size: .9rem; }

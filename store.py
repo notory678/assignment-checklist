@@ -320,6 +320,22 @@ def update_checklist_item(assignment: Assignment, item_id: int, title: str, evid
                            (item.title, item.evidence, assignment.id, item_id))
 
 
+def delete_checklist_item(assignment_id: int, item_id: int) -> None:
+    with database() as connection:
+        result = connection.execute('DELETE FROM checklist_items WHERE assignment_id = %s AND id = %s',
+                                    (assignment_id, item_id))
+        if result.rowcount == 0:
+            raise HTTPException(404, '이 공지에서 해당 체크리스트 항목을 찾을 수 없습니다.')
+
+
+def delete_assignment(assignment_id: int) -> None:
+    """Delete a notice with its checklist, review drafts and PDF preview (ON DELETE CASCADE)."""
+    with database() as connection:
+        result = connection.execute('DELETE FROM assignments WHERE id = %s', (assignment_id,))
+        if result.rowcount == 0:
+            raise HTTPException(404, '공지를 찾을 수 없습니다.')
+
+
 def set_checklist_completed(assignment_id: int, item_id: int, completed: bool) -> None:
     with database() as connection:
         result = connection.execute(
