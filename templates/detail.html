@@ -38,7 +38,7 @@
   <section class="panel" aria-labelledby="checklist-heading">
     <div class="panel-heading">
       <h2 id="checklist-heading">체크리스트</h2>
-      <span class="badge">{{ completed_count }}/{{ items | length }} 완료</span>
+      <span class="badge" id="completion-count" aria-live="polite">{{ completed_count }}/{{ items | length }} 완료</span>
     </div>
     {% if item_deleted %}<p class="save-feedback" role="status">항목을 삭제했습니다.</p>{% endif %}
     <div class="extraction-box">
@@ -75,12 +75,13 @@
     </div>
     {% if items %}
     <p class="hint preparation-guide">각 항목에 제출 주소와 준비 메모를 남길 수 있습니다. 입력은 선택사항입니다.</p>
-    <ul class="checklist">
+    <p class="hint">완료한 항목은 목록 아래로 이동합니다.</p>
+    <ul class="checklist" data-checklist>
       {% for item in items %}
       {% set editing_preparation = preparation_values and preparation_values.item_id == item.id %}
       {% set editing_item = edit_values and edit_values.item_id == item.id %}
       <li class="checklist-item{{ ' completed' if item.completed else '' }}" id="checklist-item-{{ item.id }}">
-        <form action="{{ url_for('update_completion', assignment_id=assignment.id, item_id=item.id) }}" method="post">
+        <form action="{{ url_for('update_completion', assignment_id=assignment.id, item_id=item.id) }}" method="post" data-completion-form>
           <button class="check-toggle" type="submit" name="completed"
                   value="{{ 'false' if item.completed else 'true' }}"
                   aria-pressed="{{ 'true' if item.completed else 'false' }}"
@@ -89,7 +90,7 @@
         <div class="item-content">
           <p class="item-title">{{ item.title }}</p>
           <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('비고 · 선택·예시·참고' if item.kind == 'note' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안')) }}</span>
-          {% if item.completed %}<span class="kind-badge done">완료</span>{% endif %}
+          <span class="kind-badge done" {% if not item.completed %}hidden{% endif %}>완료</span>
           {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
           {{ page_links(assignment.source_pages, item.evidence) }}
           {% if saved_item_id == item.id %}<p class="save-feedback" role="status">준비 내용을 저장했습니다.</p>{% endif %}

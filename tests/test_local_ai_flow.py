@@ -122,7 +122,9 @@ class LocalAIFlowTests(unittest.TestCase):
             self.assertEqual(items[1].evidence, '')
             self.assertEqual(store.get_assignment(assignment.id).deadline_evidence, '제출 기한: 11월 18일')
             store.set_checklist_completed(assignment.id, items[0].id, True)
-            self.assertTrue(store.list_checklist(assignment.id)[0].completed)
+            reordered = store.list_checklist(assignment.id)
+            self.assertTrue(next(item for item in reordered if item.id == items[0].id).completed)
+            self.assertEqual(reordered[-1].id, items[0].id)  # completed items are listed last
 
             with store.database() as connection:
                 before = connection.execute('SELECT COUNT(*) AS count FROM extraction_drafts WHERE assignment_id = %s',

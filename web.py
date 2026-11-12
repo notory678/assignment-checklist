@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
@@ -259,7 +259,13 @@ def update_completion(
     completed: Annotated[bool, Form()],
 ):
     set_checklist_completed(assignment_id, item_id, completed)
-    return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment_id), status_code=303)
+    if request.headers.get('x-requested-with') == 'fetch':
+        # In-page toggle: no reload, the page keeps its scroll position.
+        items = list_checklist(assignment_id)
+        return JSONResponse({'completed': completed, 'completed_count': sum(item.completed for item in items),
+                             'total': len(items)})
+    url = request.url_for("notice_detail", assignment_id=assignment_id)
+    return RedirectResponse(str(url) + '#checklist-heading', status_code=303)
 
 
 @router.post('/notices/{assignment_id}/checklist/{item_id}/preparation', response_class=HTMLResponse)

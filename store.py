@@ -205,7 +205,7 @@ def list_checklist(assignment_id: int) -> list[ChecklistItem]:
             """
             SELECT id, title, evidence, completed, kind, extraction_engine,
                    submission_url, preparation_note FROM checklist_items
-            WHERE assignment_id = %s ORDER BY id
+            WHERE assignment_id = %s ORDER BY completed, id
             """,
             (assignment_id,),
         ).fetchall()

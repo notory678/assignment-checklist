@@ -1,5 +1,6 @@
 """Manual items, saved-item edits, completed styling and follow-up notices over HTTP (TC13~TC16)."""
 
+import json
 import os
 import re
 import unittest
@@ -166,6 +167,29 @@ class ChecklistEditWebTests(unittest.TestCase):
         self.assertEqual(self.request(item_delete, [])[0], 404)
         self.assertEqual(self.request(f'/notices/{notice_id}/delete', [])[0], 404)
         self.assertIn('남는 항목', self.detail(other))
+
+
+    def test_completed_items_move_to_the_bottom_and_fetch_toggle_returns_counts(self):
+        """TC20 (R05): completed items are listed last; the in-page toggle gets JSON instead of a reload."""
+        notice_id = self.create_notice(BODY + '\nAI 사용 내역을 제출하세요.')
+        for title, evidence in [('첫째', '보고서는 PDF로 제출하세요.'), ('둘째', '배포 주소를 포함하세요.'),
+                                ('셋째', 'AI 사용 내역을 제출하세요.')]:
+            self.add_item(notice_id, title, evidence)
+        first = self.item_routes(notice_id, 'completion')[0]
+        code, raw, headers = self.request(first, [('completed', 'true')])
+        self.assertEqual(code, 303)
+        self.assertTrue(headers['Location'].endswith('#checklist-heading'))
+        titles = re.findall(r'<p class="item-title">([^<]+)</p>', self.detail(notice_id))
+        self.assertEqual(titles, ['둘째', '셋째', '첫째'])
+
+        from urllib.request import Request, build_opener
+        request = Request(os.environ['CHECKLIST_TEST_URL'] + first, data=b'completed=false',
+                          headers={'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded'})
+        with build_opener(web_helpers.NoRedirect).open(request, timeout=10) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {'completed': False, 'completed_count': 0, 'total': 3})
+        titles = re.findall(r'<p class="item-title">([^<]+)</p>', self.detail(notice_id))
+        self.assertEqual(titles, ['첫째', '둘째', '셋째'])
 
 
 if __name__ == '__main__':

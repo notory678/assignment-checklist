@@ -31,3 +31,62 @@ document.querySelectorAll('form[data-pdf-selection]').forEach((form) => {
   });
   update();
 });
+
+// Toggle completion without reloading: keep the scroll position, move completed items to the bottom.
+document.querySelectorAll('[data-checklist]').forEach((list) => {
+  const counter = document.getElementById('completion-count');
+  const itemId = (item) => Number(item.id.replace('checklist-item-', ''));
+
+  const place = (item, completed) => {
+    const others = [...list.children].filter((other) => other !== item);
+    // Same order as the server: open items by id, then completed items by id.
+    const next = others.find((other) => {
+      const otherCompleted = other.classList.contains('completed');
+      if (otherCompleted !== completed) return otherCompleted && !completed;
+      return itemId(other) > itemId(item);
+    });
+    list.insertBefore(item, next || null);
+  };
+
+  list.addEventListener('submit', async (event) => {
+    const form = event.target.closest('[data-completion-form]');
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector('.check-toggle');
+    const item = form.closest('.checklist-item');
+    const completed = button.value === 'true';
+    const following = item.nextElementSibling;
+    button.disabled = true;
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+        body: new URLSearchParams({ completed: String(completed) }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const result = await response.json();
+      item.classList.toggle('completed', result.completed);
+      button.value = result.completed ? 'false' : 'true';
+      button.setAttribute('aria-pressed', String(result.completed));
+      item.querySelector('.kind-badge.done').hidden = !result.completed;
+      if (counter) counter.textContent = `${result.completed_count}/${result.total} 완료`;
+      const top = item.getBoundingClientRect().top;
+      place(item, result.completed);
+      // Keep the next item under the pointer and give keyboard users a sensible focus.
+      const focusTarget = (following && following !== item ? following : item).querySelector('.check-toggle');
+      if (focusTarget) focusTarget.focus({ preventScroll: true });
+      if (following && following !== item) {
+        window.scrollBy(0, following.getBoundingClientRect().top - top);
+      }
+    } catch (error) {
+      const field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'completed';
+      field.value = String(completed);
+      form.append(field);
+      form.submit();  // fall back to the normal form post
+    } finally {
+      button.disabled = false;
+    }
+  });
+});

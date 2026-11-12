@@ -1,5 +1,7 @@
 test_completed_item_is_highlighted_and_can_be_cleared (test_checklist_edit_web.ChecklistEditWebTests.test_completed_item_is_highlighted_and_can_be_cleared)
 TC15 (R05) ... ok
+test_completed_items_move_to_the_bottom_and_fetch_toggle_returns_counts (test_checklist_edit_web.ChecklistEditWebTests.test_completed_items_move_to_the_bottom_and_fetch_toggle_returns_counts)
+TC20 (R05): completed items are listed last; the in-page toggle gets JSON instead of a reload. ... ok
 test_delete_notice_removes_its_checklist_only (test_checklist_edit_web.ChecklistEditWebTests.test_delete_notice_removes_its_checklist_only)
 TC19: deleting a notice removes its items; other notices stay. ... ok
 test_delete_one_item_keeps_the_others (test_checklist_edit_web.ChecklistEditWebTests.test_delete_one_item_keeps_the_others)
@@ -84,6 +86,6 @@ test_no_selection_and_invalid_ids_do_not_save (test_web.WebFlowTests.test_no_sel
 test_repeat_and_concurrent_saves_are_deduplicated (test_web.WebFlowTests.test_repeat_and_concurrent_saves_are_deduplicated) ... ok
 
 ----------------------------------------------------------------------
-Ran 71 tests in 7.685s
+Ran 72 tests in 7.012s
 
 OK
