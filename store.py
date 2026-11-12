@@ -189,14 +189,45 @@ def append_notice(assignment_id: int, title: str, body: str) -> None:
     if not body or '\x00' in body or '\x00' in title or len(title) > 200:
         raise ValueError('추가 공지 본문을 입력해 주세요. 제목은 200자 이내로 적을 수 있습니다.')
     with database() as connection:
-        row = connection.execute('SELECT body FROM assignments WHERE id = %s FOR UPDATE', (assignment_id,)).fetchone()
+        _append_body(connection, assignment_id, f'{APPENDIX_MARK} {title}' if title else APPENDIX_MARK, body)
+
+
+def _append_body(connection, assignment_id: int, heading: str, body: str) -> None:
+    row = connection.execute('SELECT body FROM assignments WHERE id = %s FOR UPDATE', (assignment_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, '공지를 찾을 수 없습니다.')
+    combined = row['body'] + '\n\n' + heading + '\n' + body
+    if len(combined) > MAX_BODY_LENGTH:
+        raise ValueError('기존 공지와 합친 본문은 30,000자까지 저장할 수 있습니다. 필요한 부분만 골라 주세요.')
+    connection.execute('UPDATE assignments SET body = %s WHERE id = %s', (combined, assignment_id))
+
+
+def append_pdf_import(import_id: UUID, assignment_id: int, title: str, selected: list[str]) -> int:
+    """Append chosen PDF pages to an existing notice as a follow-up notice, once per preview."""
+    title = title.strip()
+    if '\x00' in title or len(title) > 200:
+        raise ValueError('추가 공지 제목은 200자 이내로 적어 주세요.')
+    with database() as connection:
+        row = connection.execute(
+            """SELECT id, filename, pages, warnings, assignment_id, recommendation FROM pdf_imports
+               WHERE id = %s AND (assignment_id IS NOT NULL OR created_at > CURRENT_TIMESTAMP - INTERVAL '1 day') FOR UPDATE""",
+            (import_id,),
+        ).fetchone()
         if row is None:
-            raise HTTPException(404, '공지를 찾을 수 없습니다.')
-        heading = f'{APPENDIX_MARK} {title}' if title else APPENDIX_MARK
-        combined = row['body'] + '\n\n' + heading + '\n' + body
-        if len(combined) > MAX_BODY_LENGTH:
-            raise ValueError('기존 공지와 합친 본문은 30,000자까지 저장할 수 있습니다. 필요한 부분만 붙여넣어 주세요.')
-        connection.execute('UPDATE assignments SET body = %s WHERE id = %s', (combined, assignment_id))
+            raise HTTPException(404, 'PDF 미리보기를 찾을 수 없습니다. 파일을 다시 올려 주세요.')
+        draft = PdfImport.model_validate(row)
+        if draft.assignment_id is not None:
+            return draft.assignment_id  # repeated or concurrent submit: already attached
+        allowed = {str(page.number) for page in draft.pages if page.text}
+        if not selected or set(selected) - allowed:
+            raise ValueError('텍스트가 있는 페이지를 하나 이상 선택해 주세요.')
+        pages = [page for page in draft.pages if str(page.number) in set(selected)]
+        numbers = '·'.join(str(page.number) for page in pages)
+        source = f'({draft.filename} {numbers}페이지)'
+        heading = f'{APPENDIX_MARK} {title} {source}' if title else f'{APPENDIX_MARK} {source}'
+        _append_body(connection, assignment_id, heading, join_pages(pages))
+        connection.execute('UPDATE pdf_imports SET assignment_id = %s WHERE id = %s', (assignment_id, import_id))
+    return assignment_id
 
 
 def list_checklist(assignment_id: int) -> list[ChecklistItem]:

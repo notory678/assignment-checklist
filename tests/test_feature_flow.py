@@ -127,5 +127,63 @@ class FeatureFlowTests(unittest.TestCase):
         self.assertIn('href="#pdf-page-2"', detail)
 
 
+    def test_pdf_pages_can_be_appended_to_an_existing_notice_once(self):
+        """TC21: chosen PDF pages become a follow-up notice; items, completion and the first PDF stay intact."""
+        import store
+        import web
+        assignment_id = store.save_pdf_import(self.new_import(), '기존 과제', ['2'])
+        store.add_checklist_item(store.get_assignment(assignment_id), '보고서', '보고서는 PDF로 제출하세요.')
+        item = store.list_checklist(assignment_id)[0]
+        store.set_checklist_completed(assignment_id, item.id, True)
+        count_before = len(store.list_assignments())
+
+        from pdf_input import PdfDocument, PdfPage
+        follow_up = store.create_pdf_import(PdfDocument(filename='추가안내.pdf', pages=[
+            PdfPage(number=1, text='표지'), PdfPage(number=2, text='발표 자료는 PDF로 제출하세요.'),
+        ]))
+        preview = web.preview_pdf(self.request, follow_up).body.decode()
+        self.assertIn(f'<option value="{assignment_id}" >기존 공지에 추가: 기존 과제</option>', preview)
+
+        response = web.save_pdf_notice(self.request, follow_up, title='발표 안내', selected=['2'],
+                                       append_to=str(assignment_id))
+        self.assertEqual(response.status_code, 303)
+        self.assertIn(f'/notices/{assignment_id}?appended=1', response.headers['location'])
+        assignment = store.get_assignment(assignment_id)
+        self.assertTrue(assignment.body.endswith('[추가 공지] 발표 안내 (추가안내.pdf 2페이지)\n발표 자료는 PDF로 제출하세요.'))
+        self.assertEqual(len(store.list_assignments()), count_before)  # no new notice
+        self.assertTrue(store.list_checklist(assignment_id)[0].completed)
+        detail = web.notice_detail(self.request, assignment_id).body.decode()
+        self.assertIn('<h3>추가 공지</h3>', detail)
+        self.assertIn('href="#pdf-page-2"', detail)  # original PDF page links still work
+        # The appended sentence is a valid quote now.
+        store.add_checklist_item(assignment, '발표 자료', '발표 자료는 PDF로 제출하세요.')
+
+        # Re-submitting the same preview does not append twice, and the preview now opens the notice.
+        again = web.save_pdf_notice(self.request, follow_up, title='발표 안내', selected=['2'], append_to=str(assignment_id))
+        self.assertEqual(again.status_code, 303)
+        self.assertEqual(store.get_assignment(assignment_id).body.count('[추가 공지]'), 1)
+        self.assertEqual(web.preview_pdf(self.request, follow_up).status_code, 303)
+
+    def test_pdf_append_errors_keep_the_notice_unchanged(self):
+        """TC21"""
+        import store
+        import web
+        from fastapi import HTTPException
+        target = store.create_assignment(store.AssignmentCreate(title='대상', body='가' * 29_990))
+        import_id = self.new_import()
+        response = web.save_pdf_notice(self.request, import_id, title='', selected=['2'], append_to=str(target.id))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('30,000자', response.body.decode())
+        self.assertIn(f'value="{target.id}" selected', response.body.decode())
+        response = web.save_pdf_notice(self.request, import_id, title='', selected=[], append_to=str(target.id))
+        self.assertEqual(response.status_code, 422)
+        with self.assertRaises(HTTPException) as caught:
+            web.save_pdf_notice(self.request, import_id, title='', selected=['2'], append_to='999999999')
+        self.assertEqual(caught.exception.status_code, 404)
+        self.assertEqual(store.get_assignment(target.id).body, '가' * 29_990)
+        # The preview is still unsaved and can be stored as a new notice.
+        self.assertEqual(web.preview_pdf(self.request, import_id).status_code, 200)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -32,6 +32,7 @@ from store import (
     append_notice,
     delete_checklist_item,
     delete_assignment,
+    append_pdf_import,
 )
 
 router = APIRouter(include_in_schema=False)
@@ -152,7 +153,7 @@ def upload_pdf(request: Request, file: Annotated[UploadFile | None, File()] = No
     return RedirectResponse(request.url_for('preview_pdf', import_id=import_id), status_code=303)
 
 
-def render_pdf_preview(request: Request, draft, *, title=None, selected=None, error=None):
+def render_pdf_preview(request: Request, draft, *, title=None, selected=None, error=None, append_to=''):
     recommended = ({str(page.number) for page in draft.recommendation.pages if page.verified}
                    if draft.recommendation else None)
     if selected is None:
@@ -163,6 +164,8 @@ def render_pdf_preview(request: Request, draft, *, title=None, selected=None, er
         'selected': selected,
         'recommendations': {page.number: page for page in draft.recommendation.pages} if draft.recommendation else {},
         'groq_ready': groq_ready(),
+        'assignments': list_assignments(),
+        'append_to': append_to,
         'error': error,
     }, status_code=422 if error else 200)
 
@@ -190,8 +193,21 @@ def preview_pdf(request: Request, import_id: UUID):
 
 @router.post('/pdf-imports/{import_id}/save', response_class=HTMLResponse)
 def save_pdf_notice(request: Request, import_id: UUID,
-                    title: Annotated[str, Form()] = '', selected: Annotated[list[str], Form()] = []):
+                    title: Annotated[str, Form()] = '', selected: Annotated[list[str], Form()] = [],
+                    append_to: Annotated[str, Form()] = ''):
     draft = get_pdf_import(import_id)
+    if append_to:
+        if not append_to.isdigit():
+            return render_pdf_preview(request, draft, title=title, selected=set(selected),
+                                      error='추가 공지를 붙일 공지를 다시 선택해 주세요.')
+        get_assignment(int(append_to))
+        try:
+            assignment_id = append_pdf_import(import_id, int(append_to), title, selected)
+        except ValueError as exc:
+            return render_pdf_preview(request, draft, title=title, selected=set(selected), error=str(exc),
+                                      append_to=append_to)
+        url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(appended=1)
+        return RedirectResponse(str(url), status_code=303)
     try:
         assignment_id = save_pdf_import(import_id, title, selected)
     except ValueError as exc:
