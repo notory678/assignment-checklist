@@ -49,3 +49,11 @@ CREATE TABLE IF NOT EXISTS pdf_imports (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     assignment_id BIGINT REFERENCES assignments (id) ON DELETE CASCADE
 );
+
+-- Notes (optional/example sentences) are stored as their own kind.
+ALTER TABLE checklist_items DROP CONSTRAINT IF EXISTS checklist_items_kind_check;
+ALTER TABLE checklist_items ADD CONSTRAINT checklist_items_kind_check
+    CHECK (kind IN ('requirement', 'suggestion', 'note'));
+
+-- AI page recommendation for an unsaved PDF preview.
+ALTER TABLE pdf_imports ADD COLUMN IF NOT EXISTS recommendation JSONB;

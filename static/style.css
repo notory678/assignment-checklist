@@ -187,3 +187,13 @@ button:disabled { opacity: .65; cursor: wait; }
   .panel { padding: 17px; }
   .intro { padding-block: 26px 19px; }
 }
+
+/* Notes, completed items, item editing, PDF recommendation */
+.kind-badge.note { background: #e8eef9; color: #2c4a7a; }
+.kind-badge.done { background: var(--accent); color: white; margin-left: 4px; }
+.checklist-item.completed { background: var(--accent-soft); border-radius: 8px; padding-inline: 10px; }
+.checklist-item.completed .item-title { color: var(--accent-hover); }
+.item-editor { margin-top: 6px; }
+.recommend-box { margin-block: 14px; }
+.recommendation { margin-bottom: 8px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; font-size: .9rem; }
+select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: white; }

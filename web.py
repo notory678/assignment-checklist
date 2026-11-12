@@ -7,8 +7,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from extraction import Candidate, ExtractionError, ai_provider, ai_ready, local_ai_ready, extract_notice
-from pdf_input import MAX_PDF_BYTES, PdfInputError, evidence_page_numbers, extract_pdf
+from extraction import (Candidate, ExtractionError, ai_provider, ai_ready, groq_ready, local_ai_ready, extract_notice,
+                        recommend_pdf_pages)
+from pdf_input import MAX_PDF_BYTES, PdfInputError, evidence_page_numbers, extract_pdf, join_pages
 
 from store import (
     Assignment,
@@ -26,6 +27,9 @@ from store import (
     get_pdf_import,
     save_pdf_import,
     save_checklist_preparation,
+    save_pdf_recommendation,
+    update_checklist_item,
+    append_notice,
 )
 
 router = APIRouter(include_in_schema=False)
@@ -33,17 +37,29 @@ templates = Jinja2Templates(directory=Path(__file__).with_name("templates"))
 templates.env.globals['evidence_pages'] = evidence_page_numbers
 
 
-def render_home(request: Request, *, title="", body="", error=None, pdf_error=None):
+def appended_text(assignment: Assignment) -> str:
+    """Text added after a PDF notice was saved (follow-up notices)."""
+    if not assignment.source_pages:
+        return ''
+    return assignment.body[len(join_pages(assignment.source_pages)):].strip()
+
+
+templates.env.globals['appended_text'] = appended_text
+
+
+def render_home(request: Request, *, title="", body="", append_to="", error=None, pdf_error=None):
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"assignments": list_assignments(), "title": title, "body": body, "error": error, "pdf_error": pdf_error},
+        {"assignments": list_assignments(), "title": title, "body": body, "append_to": append_to,
+         "error": error, "pdf_error": pdf_error},
         status_code=422 if error or pdf_error else 200,
     )
 
 
 def render_detail(request: Request, assignment: Assignment, *, title="", evidence="", error=None,
-                  extraction_error=None, preparation_error=None, preparation_values=None, saved_item_id=None):
+                  extraction_error=None, preparation_error=None, preparation_values=None, saved_item_id=None,
+                  edit_error=None, edit_values=None, edited_item_id=None, appended=False):
     items = list_checklist(assignment.id)
     return templates.TemplateResponse(
         request,
@@ -59,11 +75,15 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
             "preparation_error": preparation_error,
             "preparation_values": preparation_values,
             "saved_item_id": saved_item_id,
+            "edit_error": edit_error,
+            "edit_values": edit_values,
+            "edited_item_id": edited_item_id,
+            "appended": appended,
             "ai_ready": ai_ready(),
             "ai_provider": ai_provider(),
             "local_ai_ready": local_ai_ready(),
         },
-        status_code=422 if error or extraction_error or preparation_error else 200,
+        status_code=422 if error or extraction_error or preparation_error or edit_error else 200,
     )
 
 
@@ -91,13 +111,25 @@ def save_notice(
     request: Request,
     title: Annotated[str, Form()] = "",
     body: Annotated[str, Form()] = "",
+    append_to: Annotated[str, Form()] = "",
 ):
+    if append_to:
+        if not append_to.isdigit():
+            return render_home(request, title=title, body=body, error="추가 공지를 붙일 공지를 다시 선택해 주세요.")
+        assignment_id = int(append_to)
+        get_assignment(assignment_id)
+        try:
+            append_notice(assignment_id, title, body)
+        except ValueError as exc:
+            return render_home(request, title=title, body=body, append_to=append_to, error=str(exc))
+        url = request.url_for("notice_detail", assignment_id=assignment_id).include_query_params(appended=1)
+        return RedirectResponse(str(url), status_code=303)
     try:
         payload = AssignmentCreate(title=title, body=body)
     except ValidationError:
         return render_home(
             request, title=title, body=body,
-            error="제목은 1~200자로 입력하고, 본문에는 공지 내용을 붙여넣어 주세요.",
+            error="제목은 1~200자로 입력하고, 본문에는 공지 내용을 30,000자 이내로 붙여넣어 주세요.",
         )
     assignment = create_assignment(payload)
     return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment.id), status_code=303)
@@ -118,12 +150,30 @@ def upload_pdf(request: Request, file: Annotated[UploadFile | None, File()] = No
 
 
 def render_pdf_preview(request: Request, draft, *, title=None, selected=None, error=None):
+    recommended = {str(page.number) for page in draft.recommendation.pages} if draft.recommendation else None
+    if selected is None:
+        selected = recommended if recommended else {str(page.number) for page in draft.pages if page.text}
     return templates.TemplateResponse(request, 'pdf_preview.html', {
         'draft': draft,
         'title': title if title is not None else Path(draft.filename).stem[:200],
-        'selected': selected if selected is not None else {str(page.number) for page in draft.pages if page.text},
+        'selected': selected,
+        'recommendations': {page.number: page for page in draft.recommendation.pages} if draft.recommendation else {},
+        'groq_ready': groq_ready(),
         'error': error,
     }, status_code=422 if error else 200)
+
+
+@router.post('/pdf-imports/{import_id}/recommend', response_class=HTMLResponse)
+def recommend_pdf(request: Request, import_id: UUID):
+    draft = get_pdf_import(import_id)
+    if draft.assignment_id is not None:
+        return RedirectResponse(request.url_for('notice_detail', assignment_id=draft.assignment_id), status_code=303)
+    try:
+        recommendation = recommend_pdf_pages([(page.number, page.text) for page in draft.pages])
+    except ExtractionError as exc:
+        return render_pdf_preview(request, draft, error=str(exc))
+    save_pdf_recommendation(import_id, recommendation)
+    return RedirectResponse(request.url_for('preview_pdf', import_id=import_id), status_code=303)
 
 
 @router.get('/pdf-imports/{import_id}', response_class=HTMLResponse)
@@ -146,8 +196,10 @@ def save_pdf_notice(request: Request, import_id: UUID,
 
 
 @router.get("/notices/{assignment_id}", response_class=HTMLResponse)
-def notice_detail(request: Request, assignment_id: int, saved: int | None = None):
-    return render_detail(request, get_assignment(assignment_id), saved_item_id=saved)
+def notice_detail(request: Request, assignment_id: int, saved: int | None = None, edited: int | None = None,
+                  appended: int | None = None):
+    return render_detail(request, get_assignment(assignment_id), saved_item_id=saved, edited_item_id=edited,
+                         appended=bool(appended))
 
 
 @router.post("/notices/{assignment_id}/checklist", response_class=HTMLResponse)
@@ -163,6 +215,23 @@ def save_checklist_item(
     except ValueError as exc:
         return render_detail(request, assignment, title=title, evidence=evidence, error=str(exc))
     return RedirectResponse(request.url_for("notice_detail", assignment_id=assignment_id), status_code=303)
+
+
+@router.post('/notices/{assignment_id}/checklist/{item_id}/edit', response_class=HTMLResponse)
+def edit_checklist_item(
+    request: Request, assignment_id: int, item_id: int,
+    title: Annotated[str, Form()] = '',
+    evidence: Annotated[str, Form()] = '',
+):
+    assignment = get_assignment(assignment_id)
+    try:
+        update_checklist_item(assignment, item_id, title, evidence)
+    except ValueError as exc:
+        message = '항목 이름은 1~200자, 근거는 4,000자 이내로 입력해 주세요.' if isinstance(exc, ValidationError) else str(exc)
+        return render_detail(request, assignment, edit_error=message,
+                             edit_values={'item_id': item_id, 'title': title, 'evidence': evidence})
+    url = request.url_for('notice_detail', assignment_id=assignment_id).include_query_params(edited=item_id)
+    return RedirectResponse(str(url) + f'#checklist-item-{item_id}', status_code=303)
 
 
 @router.post("/notices/{assignment_id}/checklist/{item_id}/completion")

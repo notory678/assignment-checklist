@@ -11,6 +11,13 @@
     </section>
     {% endfor %}
   </div>
+  {% set extra = appended_text(assignment) %}
+  {% if extra %}
+  <section class="pdf-source-page" aria-label="추가 공지">
+    <h3>추가 공지</h3>
+    <div class="notice-copy">{{ extra }}</div>
+  </section>
+  {% endif %}
   {% else %}
   <div class="notice-copy">{{ assignment.body }}</div>
   {% endif %}

@@ -21,7 +21,27 @@ class ExtractionTests(unittest.TestCase):
 
     def test_optional_negative_and_example_are_not_requirements(self):
         body = '보고서 제출은 필요 없습니다.\n영상은 선택 제출입니다.\n예시: 배포 주소를 포함하세요.\nAI 내역은 제출하지 않아도 됩니다.'
-        self.assertEqual(extract_notice('공지', body, 'basic').items, [])
+        items = extract_notice('공지', body, 'basic').items
+        # R02: optional/example sentences are never requirements; they are kept as notes with the exact quote.
+        self.assertEqual([item.kind for item in items], ['note'] * 4)
+        self.assertEqual([item.evidence for item in items], body.split('\n'))
+
+    def test_mixed_sentence_becomes_note_and_requirements_stay_separate(self):
+        body = '보고서는 PDF로 제출하세요.\n예시 코드를 참고하여 구현하고, 배포 주소를 포함하세요.\n마감은 추후 안내합니다.\n수업 소개입니다.'
+        items = extract_notice('공지', body, 'basic').items
+        self.assertEqual([(item.kind, item.evidence) for item in items if item.kind != 'suggestion'], [
+            ('requirement', '보고서는 PDF로 제출하세요.'),
+            ('note', '예시 코드를 참고하여 구현하고, 배포 주소를 포함하세요.'),
+            ('note', '마감은 추후 안내합니다.'),
+        ])
+
+    def test_ungrounded_ai_note_is_removed(self):
+        result = validate_output(ModelOutput(items=[
+            Candidate(title='영상은 선택', evidence='영상은 선택입니다.', kind='note'),
+            Candidate(title='없는 비고', evidence='원문에 없는 문장', kind='note'),
+        ], deadline_evidence=''), '영상은 선택입니다.', 'ai')
+        self.assertEqual([(item.kind, item.evidence) for item in result.items], [('note', '영상은 선택입니다.')])
+        self.assertTrue(result.warnings)
 
     def test_unrecognized_action_remains_a_quote(self):
         body = '파일명에 학번을 기재하세요.'

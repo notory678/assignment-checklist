@@ -13,6 +13,7 @@
 <div class="columns detail-columns">
   <section class="panel" aria-labelledby="notice-body-heading">
     <h2 id="notice-body-heading">공지 원문</h2>
+    {% if appended %}<p class="save-feedback" role="status">추가 공지를 붙였습니다. 체크리스트 자동 생성을 다시 실행하면 새 조건을 후보로 볼 수 있고, 기존 항목과 완료 상태는 유지됩니다.</p>{% endif %}
     {{ source_text(assignment) }}
     <div class="deadline-box">
       <h3>제출 기한</h3>
@@ -69,7 +70,8 @@
     <ul class="checklist">
       {% for item in items %}
       {% set editing_preparation = preparation_values and preparation_values.item_id == item.id %}
-      <li class="checklist-item" id="checklist-item-{{ item.id }}">
+      {% set editing_item = edit_values and edit_values.item_id == item.id %}
+      <li class="checklist-item{{ ' completed' if item.completed else '' }}" id="checklist-item-{{ item.id }}">
         <form action="{{ url_for('update_completion', assignment_id=assignment.id, item_id=item.id) }}" method="post">
           <button class="check-toggle" type="submit" name="completed"
                   value="{{ 'false' if item.completed else 'true' }}"
@@ -78,10 +80,32 @@
         </form>
         <div class="item-content">
           <p class="item-title">{{ item.title }}</p>
-          <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안') }}</span>
+          <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('비고 · 선택·예시·참고' if item.kind == 'note' else ('AI 제안' if item.extraction_engine == 'ai' else '준비 제안')) }}</span>
+          {% if item.completed %}<span class="kind-badge done">완료</span>{% endif %}
           {% if item.evidence %}<p class="evidence">{{ item.evidence }}</p>{% else %}<p class="evidence">공지의 필수 조건이 아닌 추가 준비 작업입니다.</p>{% endif %}
           {{ page_links(assignment.source_pages, item.evidence) }}
           {% if saved_item_id == item.id %}<p class="save-feedback" role="status">준비 내용을 저장했습니다.</p>{% endif %}
+          {% if edited_item_id == item.id %}<p class="save-feedback" role="status">항목을 수정했습니다.</p>{% endif %}
+          <details class="preparation-editor item-editor" {% if editing_item %}open{% endif %}>
+            <summary>항목 수정</summary>
+            {% if editing_item %}<p class="error" role="alert">{{ edit_error }}</p>{% endif %}
+            <form class="fields" aria-label="{{ item.title }} 항목 수정"
+                  action="{{ url_for('edit_checklist_item', assignment_id=assignment.id, item_id=item.id) }}" method="post">
+              <div>
+                <label for="edit-title-{{ item.id }}">항목 이름</label>
+                <input id="edit-title-{{ item.id }}" name="title" maxlength="200" required
+                       value="{{ edit_values.title if editing_item else item.title }}">
+              </div>
+              {% if item.kind != 'suggestion' %}
+              <div>
+                <label for="edit-evidence-{{ item.id }}">근거 문구</label>
+                <textarea id="edit-evidence-{{ item.id }}" name="evidence" rows="3" maxlength="4000" required>{{ edit_values.evidence if editing_item else item.evidence }}</textarea>
+                <p class="hint">공지 원문에 있는 문장만 저장할 수 있습니다. 완료 상태와 주소·메모는 바뀌지 않습니다.</p>
+              </div>
+              {% endif %}
+              <button class="primary" type="submit">항목 수정 저장</button>
+            </form>
+          </details>
           {% if item.submission_url or item.preparation_note %}
           <div class="preparation-saved">
             <p class="preparation-heading">내가 준비한 내용</p>

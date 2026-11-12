@@ -4,7 +4,8 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
-from extraction import ExtractionError, ModelOutput, ai_ready, extract_notice
+from extraction import (ExtractionError, ModelOutput, PageRecommendationOutput, RECOMMEND_TOTAL_CHARS,
+                        ai_ready, extract_notice, recommend_pdf_pages)
 
 
 @patch.dict('os.environ', {'AI_PROVIDER': 'groq', 'GROQ_API_KEY': 'test-key', 'GROQ_MODEL': 'openai/gpt-oss-20b'})
@@ -67,3 +68,54 @@ class GroqTests(unittest.TestCase):
         with self.assertRaisesRegex(ExtractionError, '모델'):
             extract_notice('과제', 'PDF로 제출하세요.', 'ai')
         call.assert_not_called()
+
+
+def groq_reply(content):
+    return io.BytesIO(json.dumps({'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(content)}}]}).encode())
+
+
+@patch.dict('os.environ', {'AI_PROVIDER': 'groq', 'GROQ_API_KEY': 'test-key', 'GROQ_MODEL': 'openai/gpt-oss-20b'})
+class PdfPageRecommendationTests(unittest.TestCase):
+    pages = [(1, '1주차 수업 소개입니다.'), (2, '과제 안내\n보고서는 PDF로 제출하세요.\n배포 주소를 포함하세요.'),
+             (3, ''), (4, '참고 문헌 목록')]
+
+    @patch('extraction.urlopen')
+    def test_only_real_pages_with_verified_quotes_are_recommended(self, call):
+        call.return_value = groq_reply({'pages': [
+            {'number': 2, 'summary': '보고서 PDF와 배포 주소 제출 조건', 'evidence': '보고서는 PDF로 제출하세요.'},
+            {'number': 4, 'summary': '지어낸 조건', 'evidence': '영상을 제출하세요.'},
+            {'number': 9, 'summary': '없는 페이지', 'evidence': '보고서는 PDF로 제출하세요.'},
+            {'number': 2, 'summary': '중복', 'evidence': '배포 주소를 포함하세요.'},
+        ]})
+        result = recommend_pdf_pages(self.pages)
+        self.assertEqual([(page.number, page.evidence) for page in result.pages], [(2, '보고서는 PDF로 제출하세요.')])
+        self.assertEqual(len(result.warnings), 2)
+        payload = json.loads(call.call_args.args[0].data)
+        sent = json.loads(payload['messages'][1]['content'])['pages']
+        self.assertEqual([page['number'] for page in sent], [1, 2, 4])  # empty page 3 is never sent
+        self.assertEqual(payload['response_format']['json_schema']['schema'], PageRecommendationOutput.model_json_schema())
+        call.assert_called_once()
+
+    @patch('extraction.urlopen')
+    def test_long_pages_are_shortened_with_a_warning(self, call):
+        call.return_value = groq_reply({'pages': []})
+        pages = [(number, '가' * 2000) for number in range(1, 21)]
+        result = recommend_pdf_pages(pages)
+        sent = json.loads(json.loads(call.call_args.args[0].data)['messages'][1]['content'])['pages']
+        self.assertLessEqual(sum(len(page['text']) for page in sent), RECOMMEND_TOTAL_CHARS)
+        self.assertIn('앞부분', result.warnings[0])
+        self.assertEqual(result.pages, [])
+
+    @patch.dict('os.environ', {'GROQ_API_KEY': ''})
+    @patch('extraction.urlopen')
+    def test_missing_key_and_failures_do_not_call_or_retry(self, call):
+        with self.assertRaisesRegex(ExtractionError, 'Groq API 키'):
+            recommend_pdf_pages(self.pages)
+        call.assert_not_called()
+
+    @patch('extraction.urlopen')
+    def test_rate_limit_is_reported_once(self, call):
+        call.side_effect = HTTPError('https://api.groq.com/openai/v1/chat/completions', 429, 'error', {}, None)
+        with self.assertRaisesRegex(ExtractionError, '무료 사용 한도'):
+            recommend_pdf_pages(self.pages)
+        call.assert_called_once()

@@ -12,13 +12,13 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-from extraction import Candidate, ExtractionResult, MAX_BODY_LENGTH, normalize
+from extraction import Candidate, ExtractionResult, MAX_BODY_LENGTH, PdfRecommendation, normalize
 from pdf_input import PdfDocument, PdfPage, join_pages
 
 
 class AssignmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200, examples=["클라우드 프로그래밍 프로젝트"])
-    body: str = Field(min_length=1, examples=["배포 주소를 포함하세요.\n발표 자료를 준비하세요."])
+    body: str = Field(min_length=1, max_length=MAX_BODY_LENGTH, examples=["배포 주소를 포함하세요.\n발표 자료를 준비하세요."])
 
     @field_validator("title", "body")
     @classmethod
@@ -110,6 +110,7 @@ def get_assignment(assignment_id: int) -> Assignment:
 class PdfImport(PdfDocument):
     id: UUID
     assignment_id: int | None = None
+    recommendation: PdfRecommendation | None = None
 
 
 def create_pdf_import(document: PdfDocument) -> UUID:
@@ -126,7 +127,7 @@ def create_pdf_import(document: PdfDocument) -> UUID:
 def get_pdf_import(import_id: UUID) -> PdfImport:
     with database() as connection:
         row = connection.execute(
-            """SELECT id, filename, pages, warnings, assignment_id FROM pdf_imports
+            """SELECT id, filename, pages, warnings, assignment_id, recommendation FROM pdf_imports
                WHERE id = %s AND (assignment_id IS NOT NULL OR created_at > CURRENT_TIMESTAMP - INTERVAL '1 day')""",
             (import_id,),
         ).fetchone()
@@ -139,7 +140,7 @@ def save_pdf_import(import_id: UUID, title: str, selected: list[str]) -> int:
     """Persist immutable page text, a canonical body, and its source in one transaction."""
     with database() as connection:
         row = connection.execute(
-            """SELECT id, filename, pages, warnings, assignment_id FROM pdf_imports
+            """SELECT id, filename, pages, warnings, assignment_id, recommendation FROM pdf_imports
                WHERE id = %s AND (assignment_id IS NOT NULL OR created_at > CURRENT_TIMESTAMP - INTERVAL '1 day') FOR UPDATE""",
             (import_id,),
         ).fetchone()
@@ -166,6 +167,36 @@ def save_pdf_import(import_id: UUID, title: str, selected: list[str]) -> int:
         ).fetchone()
         connection.execute('UPDATE pdf_imports SET assignment_id = %s WHERE id = %s', (assignment['id'], import_id))
     return assignment['id']
+
+
+def save_pdf_recommendation(import_id: UUID, recommendation: PdfRecommendation) -> None:
+    with database() as connection:
+        result = connection.execute(
+            """UPDATE pdf_imports SET recommendation = %s
+               WHERE id = %s AND assignment_id IS NULL AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 day'""",
+            (Jsonb(recommendation.model_dump()), import_id),
+        )
+        if result.rowcount == 0:
+            raise HTTPException(404, 'PDF 미리보기를 찾을 수 없거나 이미 공지로 저장했습니다.')
+
+
+APPENDIX_MARK = '[추가 공지]'
+
+
+def append_notice(assignment_id: int, title: str, body: str) -> None:
+    """Append a follow-up notice to an existing notice body. Existing items stay valid quotes."""
+    title, body = title.strip(), normalize_newlines(body).strip()
+    if not body or '\x00' in body or '\x00' in title or len(title) > 200:
+        raise ValueError('추가 공지 본문을 입력해 주세요. 제목은 200자 이내로 적을 수 있습니다.')
+    with database() as connection:
+        row = connection.execute('SELECT body FROM assignments WHERE id = %s FOR UPDATE', (assignment_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, '공지를 찾을 수 없습니다.')
+        heading = f'{APPENDIX_MARK} {title}' if title else APPENDIX_MARK
+        combined = row['body'] + '\n\n' + heading + '\n' + body
+        if len(combined) > MAX_BODY_LENGTH:
+            raise ValueError('기존 공지와 합친 본문은 30,000자까지 저장할 수 있습니다. 필요한 부분만 붙여넣어 주세요.')
+        connection.execute('UPDATE assignments SET body = %s WHERE id = %s', (combined, assignment_id))
 
 
 def list_checklist(assignment_id: int) -> list[ChecklistItem]:
@@ -231,7 +262,7 @@ def validate_review_item(assignment: Assignment, item: Candidate) -> Candidate:
     title, evidence = item.title.strip(), normalize(item.evidence).strip()
     if not title or len(title) > 200 or '\x00' in title:
         raise ValueError('선택한 항목 이름을 1~200자로 입력해 주세요.')
-    if item.kind == 'requirement' and (not evidence or evidence not in normalize(assignment.body)):
+    if item.kind in ('requirement', 'note') and (not evidence or evidence not in normalize(assignment.body)):
         raise ValueError('공지에 명시된 항목의 근거는 원문에서 그대로 복사해 주세요.')
     if item.kind == 'suggestion':
         evidence = ''
@@ -273,6 +304,20 @@ def save_extraction_review(assignment: Assignment, draft_id: UUID, items: list[C
                                (draft.result.deadline_evidence, assignment.id))
         connection.execute('UPDATE assignments SET extraction_reviewed = TRUE WHERE id = %s', (assignment.id,))
         connection.execute('UPDATE extraction_drafts SET saved_at = CURRENT_TIMESTAMP WHERE id = %s', (draft_id,))
+
+
+def update_checklist_item(assignment: Assignment, item_id: int, title: str, evidence: str) -> None:
+    """Edit a saved item's name and quote. The kind stays; quotes are re-checked against the notice."""
+    with database() as connection:
+        row = connection.execute(
+            'SELECT kind FROM checklist_items WHERE assignment_id = %s AND id = %s FOR UPDATE',
+            (assignment.id, item_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, '이 공지에서 해당 체크리스트 항목을 찾을 수 없습니다.')
+        item = validate_review_item(assignment, Candidate.model_construct(title=title, evidence=evidence, kind=row['kind']))
+        connection.execute('UPDATE checklist_items SET title = %s, evidence = %s WHERE assignment_id = %s AND id = %s',
+                           (item.title, item.evidence, assignment.id, item_id))
 
 
 def set_checklist_completed(assignment_id: int, item_id: int, completed: bool) -> None:

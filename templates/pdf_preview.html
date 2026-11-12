@@ -15,9 +15,28 @@
     <span class="badge">{{ draft.pages | length }}페이지</span>
   </div>
   <p class="muted">텍스트가 올바르게 읽혔는지 원본과 비교해 주세요. 표·다단 문서에서는 읽는 순서가 달라질 수 있습니다.</p>
-  <p class="hint">페이지 번호는 PDF 파일 순서입니다. 텍스트를 읽지 못한 페이지는 선택할 수 없습니다. 이 단계에서는 외부 AI에 전송하지 않습니다.</p>
+  <p class="hint">페이지 번호는 PDF 파일 순서입니다. 텍스트를 읽지 못한 페이지는 선택할 수 없습니다. AI 추천 버튼을 누르기 전에는 외부 AI에 전송하지 않습니다.</p>
   {% for warning in draft.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <div class="extraction-box recommend-box">
+    <h3>AI로 과제 관련 페이지 찾기</h3>
+    {% if draft.recommendation %}
+      {% if draft.recommendation.pages %}
+      <p class="save-feedback" role="status">Groq가 {{ draft.recommendation.pages | length }}개 페이지를 추천했습니다. 추천 페이지만 선택해 두었으니 원본과 비교해 확정해 주세요.</p>
+      {% else %}
+      <p class="notice-message" role="status">과제 조건이 있는 페이지를 찾지 못했습니다. 페이지를 직접 선택해 주세요.</p>
+      {% endif %}
+      {% for warning in draft.recommendation.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
+    {% endif %}
+    {% if groq_ready %}
+    <p class="hint">읽은 페이지 텍스트를 Groq로 보내 과제 조건이 있는 페이지와 요약, 근거 문장을 받습니다. 근거 문장이 실제 페이지에 없으면 추천에서 뺍니다.</p>
+    <form action="{{ url_for('recommend_pdf', import_id=draft.id) }}" method="post" data-loading="페이지 분석 중…" data-loading-message="Groq가 페이지를 읽고 있어요. 잠시만 기다려 주세요.">
+      <button class="primary" type="submit">{{ '다시 추천받기' if draft.recommendation else 'AI 페이지 추천 (Groq)' }}</button>
+    </form>
+    {% else %}
+    <p class="hint">Groq API 키를 설정하면 과제 관련 페이지를 추천받을 수 있습니다. 지금은 페이지를 직접 선택해 주세요.</p>
+    {% endif %}
+  </div>
   <form class="fields" action="{{ url_for('save_pdf_notice', import_id=draft.id) }}" method="post" data-pdf-selection>
     <div>
       <label for="pdf-title">공지 제목</label>
@@ -37,6 +56,14 @@
             PDF {{ page.number }}페이지{% if not page.text %} · 읽을 수 있는 텍스트 없음{% endif %}
           </label>
         </legend>
+        {% if page.number in recommendations %}
+        {% set rec = recommendations[page.number] %}
+        <div class="recommendation">
+          <span class="kind-badge requirement">AI 추천</span>
+          <p>{{ rec.summary }}</p>
+          <p class="evidence">근거 문장: {{ rec.evidence }}</p>
+        </div>
+        {% endif %}
         {% if page.text %}<div class="notice-copy pdf-preview-text">{{ page.text }}</div>{% else %}<p class="hint">원본을 확인해 주세요. 이미지에 있는 글자는 아직 읽지 않습니다.</p>{% endif %}
       </fieldset>
       {% endfor %}

@@ -28,7 +28,7 @@
       <span class="badge">{{ draft.result.items | length }}개 후보</span>
     </div>
     <p class="engine-label">{% if draft.result.provider == 'groq' %}무료 API 추출 결과 · Groq{% elif draft.result.provider == 'ollama' %}로컬 AI 추출 결과{% elif draft.result.engine == 'ai' %}AI 추출 결과{% else %}기본 추출 결과 · AI 미사용{% endif %}</p>
-    <p class="hint">항목 이름과 근거를 수정할 수 있습니다. 제외할 항목은 선택을 해제하세요. 제안 항목은 기본으로 선택하지 않습니다.</p>
+    <p class="hint">항목 이름과 근거를 수정할 수 있습니다. 제외할 항목은 선택을 해제하세요. 제안과 비고 항목은 기본으로 선택하지 않습니다.</p>
     {% if draft.result.engine == 'basic' %}<p class="notice-message">정해진 표현으로 찾은 결과입니다. 선택 조건이나 문장 맥락을 놓칠 수 있으니 원문과 비교해 주세요.</p>{% endif %}
     {% for warning in draft.result.warnings %}<p class="notice-message" role="status">{{ warning }}</p>{% endfor %}
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
@@ -45,10 +45,10 @@
               항목 {{ loop.index }} 저장
             </label>
           </legend>
-          <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('AI 제안' if draft.result.engine == 'ai' else '준비 제안') }}</span>
+          <span class="kind-badge {{ item.kind }}">{{ '공지에 명시' if item.kind == 'requirement' else ('비고 · 선택·예시·참고' if item.kind == 'note' else ('AI 제안' if draft.result.engine == 'ai' else '준비 제안')) }}</span>
           <label for="title-{{ i }}">항목 {{ loop.index }} 이름</label>
           <input id="title-{{ i }}" name="titles" value="{{ titles[i] }}" maxlength="200">
-          {% if item.kind == 'requirement' %}
+          {% if item.kind in ('requirement', 'note') %}
           <label for="evidence-{{ i }}">항목 {{ loop.index }} 원문 근거</label>
           <textarea id="evidence-{{ i }}" name="evidences" rows="3" maxlength="4000">{{ evidences[i] }}</textarea>
           {{ page_links(assignment.source_pages, evidences[i]) }}
@@ -56,6 +56,7 @@
           <input type="hidden" name="evidences" value="">
           <p class="hint">공지에 명시된 필수 조건이 아닙니다. 필요할 때만 선택하세요.</p>
           {% endif %}
+          {% if item.kind == 'note' %}<p class="hint">공지에서 선택·예시·권장·추후 안내로 적힌 문장입니다. 필수 조건이 아니므로 기본으로 선택하지 않습니다.</p>{% endif %}
         </fieldset>
         {% endfor %}
       </div>
