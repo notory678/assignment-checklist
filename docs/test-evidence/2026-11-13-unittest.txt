@@ -53,6 +53,7 @@ test_long_pages_are_shortened_with_a_warning (test_groq.PdfPageRecommendationTes
 test_missing_key_and_failures_do_not_call_or_retry (test_groq.PdfPageRecommendationTests.test_missing_key_and_failures_do_not_call_or_retry) ... ok
 test_only_real_pages_with_verified_quotes_are_recommended (test_groq.PdfPageRecommendationTests.test_only_real_pages_with_verified_quotes_are_recommended) ... ok
 test_rate_limit_is_reported_once (test_groq.PdfPageRecommendationTests.test_rate_limit_is_reported_once) ... ok
+test_request_too_large_is_explained (test_groq.PdfPageRecommendationTests.test_request_too_large_is_explained) ... ok
 test_groq_result_review_save_and_local_backup (test_local_ai_flow.LocalAIFlowTests.test_groq_result_review_save_and_local_backup) ... ok
 test_local_result_review_save_completion_and_failure (test_local_ai_flow.LocalAIFlowTests.test_local_result_review_save_completion_and_failure) ... ok
 test_pdf_ai_evidence_pages_are_derived_again_after_review_edits (test_local_ai_flow.LocalAIFlowTests.test_pdf_ai_evidence_pages_are_derived_again_after_review_edits) ... ok
@@ -82,6 +83,6 @@ test_no_selection_and_invalid_ids_do_not_save (test_web.WebFlowTests.test_no_sel
 test_repeat_and_concurrent_saves_are_deduplicated (test_web.WebFlowTests.test_repeat_and_concurrent_saves_are_deduplicated) ... ok
 
 ----------------------------------------------------------------------
-Ran 69 tests in 7.926s
+Ran 70 tests in 7.858s
 
 OK

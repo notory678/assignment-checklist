@@ -94,6 +94,8 @@ class PdfPageRecommendationTests(unittest.TestCase):
         sent = json.loads(payload['messages'][1]['content'])['pages']
         self.assertEqual([page['number'] for page in sent], [1, 2, 4])  # empty page 3 is never sent
         self.assertEqual(payload['response_format']['json_schema']['schema'], PageRecommendationOutput.model_json_schema())
+        # Stay inside Groq Free's 8,000 tokens per minute: short page text and a small answer budget.
+        self.assertEqual(payload['max_completion_tokens'], 1536)
         call.assert_called_once()
 
     @patch('extraction.urlopen')
@@ -112,6 +114,13 @@ class PdfPageRecommendationTests(unittest.TestCase):
         with self.assertRaisesRegex(ExtractionError, 'Groq API 키'):
             recommend_pdf_pages(self.pages)
         call.assert_not_called()
+
+    @patch('extraction.urlopen')
+    def test_request_too_large_is_explained(self, call):
+        call.side_effect = HTTPError('https://api.groq.com/openai/v1/chat/completions', 413, 'error', {}, None)
+        with self.assertRaisesRegex(ExtractionError, '8,000토큰'):
+            recommend_pdf_pages(self.pages)
+        call.assert_called_once()
 
     @patch('extraction.urlopen')
     def test_rate_limit_is_reported_once(self, call):
