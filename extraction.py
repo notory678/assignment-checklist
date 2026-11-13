@@ -42,7 +42,7 @@ def normalize(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-LIST_MARK = re.compile(r"^\s*(?:[*\-•·▪◦]|\d{1,2}[.)]|[①-⑳]|[가-하][.)])\s+")
+LIST_MARK = re.compile(r"^\s*(?:[*\-•·▪◦/]|\d{1,2}[.)]|[①-⑳]|[가-하][.)])\s+")
 QUOTE_CHARS = '"\'“”‘’「」『』'
 
 
@@ -152,16 +152,23 @@ def extract_basic(body: str) -> ExtractionResult:
     deadline = ""
     seen: set[str] = set()
     notes: list[Candidate] = []
+    seen_quotes: set[str] = set()
     for sentence in SENTENCES.split(normalize(body)):
         sentence = sentence.strip()
         if not sentence:
             continue
+        key = quote_key(sentence)
+        if key and key in seen_quotes:
+            # A follow-up notice often repeats an earlier condition word for word: it is not a new task.
+            continue
+        if key:
+            seen_quotes.add(key)
         if OPTIONAL.search(sentence):
             # Optional, example, prohibited or "later notice" sentences are kept as notes, never requirements.
             related = ACTION.search(sentence) or DUE.search(sentence) or any(re.search(p, sentence, re.I) for p, _ in RULES)
             if related and len(sentence) <= 200 and sentence not in seen:
                 seen.add(sentence)
-                notes.append(Candidate(title=sentence, evidence=sentence, kind="note"))
+                notes.append(Candidate(title=LIST_MARK.sub('', sentence).strip() or sentence, evidence=sentence, kind="note"))
             continue
         is_deadline = valid_deadline(sentence, normalize(body))
         if is_deadline:
@@ -169,8 +176,12 @@ def extract_basic(body: str) -> ExtractionResult:
         if not ACTION.search(sentence) and not is_deadline:
             continue
         matches = [title for pattern, title in RULES if re.search(pattern, sentence, re.I)]
-        if '보고서 PDF 준비' in matches and 'PDF 파일 준비' in matches:
+        if 'PDF 파일 준비' in matches and ('보고서 PDF 준비' in matches or '발표 자료 준비' in matches):
             matches.remove('PDF 파일 준비')
+            if '발표 자료 준비' in matches:
+                matches[matches.index('발표 자료 준비')] = '발표 자료 PDF 준비'
+        if '소스 코드 준비' in matches and '저장소 주소 포함' in matches:
+            matches.remove('소스 코드 준비')
         if not matches and is_deadline:
             matches = ['기한 내 제출 준비']
         if not matches and not is_deadline:
@@ -326,7 +337,22 @@ def extract_groq(title: str, body: str) -> ExtractionResult:
         output = ModelOutput.model_validate_json(content)
     except (ValueError, ValidationError) as exc:
         raise ExtractionError('Groq 응답을 읽지 못했습니다. 다시 시도하거나 기본 추출을 사용해 주세요.') from exc
-    return validate_output(output, body, 'ai').model_copy(update={'provider': 'groq', 'model': model})
+    result = validate_output(output, body, 'ai')
+    return with_rule_notes(result, body).model_copy(update={'provider': 'groq', 'model': model})
+
+
+def with_rule_notes(result: ExtractionResult, body: str) -> ExtractionResult:
+    """The model sometimes leaves out optional or example sentences. Add the ones the rules find as notes,
+    so '시연 영상은 선택 제출입니다.' is always visible (never preselected) even when Groq skips it."""
+    items = list(result.items)
+    for note in extract_basic(body).items:
+        if note.kind != 'note' or len(items) >= MAX_ITEMS:
+            continue
+        if any(item.evidence and (same_condition(note.evidence, item.evidence) or same_condition(item.evidence, note.evidence))
+               for item in items):
+            continue
+        items.append(note)
+    return result.model_copy(update={'items': items})
 
 
 # --- PDF page recommendation -------------------------------------------------

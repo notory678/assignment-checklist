@@ -50,7 +50,7 @@ class ExtractionTests(unittest.TestCase):
     def test_pdf_does_not_imply_an_unmentioned_report(self):
         result = extract_notice('공지', '발표 자료는 PDF로 제출하세요.', 'basic')
         self.assertNotIn('보고서 PDF 준비', [item.title for item in result.items])
-        self.assertIn('PDF 파일 준비', [item.title for item in result.items])
+        self.assertIn('발표 자료 PDF 준비', [item.title for item in result.items])
 
     def test_deadline_is_not_invented_or_inferred_from_event_date(self):
         for body in ['발표일: 2026-11-18\n보고서를 제출하세요.', '마감은 추후 안내합니다.', '11월 18일에 수업합니다.']:
@@ -213,3 +213,30 @@ class RealNoticeTests(unittest.TestCase):
         self.assertNotIn('1. 프로젝트 산출물 제출', evidences)
         self.assertNotIn('11주차 (11월 16일 월요일)', evidences)
         self.assertEqual(result.deadline_evidence, '11월 13일(금)까지 이메일로 제출해 주세요.')
+
+    def test_follow_up_repeating_a_condition_adds_nothing_new(self):
+        from extraction import existing_indexes
+        first = '* 보고서는 PDF로 제출하세요.\n* 소스 코드는 GitHub 저장소 주소로 제출하세요.'
+        saved = [item for item in extract_notice('공지', first, 'basic').items if item.kind == 'requirement']
+        self.assertEqual([item.title for item in saved], ['보고서 PDF 준비', '저장소 주소 포함'])
+        both = first + '\n\n[추가 공지]\n보고서는 PDF로 제출하세요.\n팀원별 기여 내용을 보고서에 포함하세요.'
+        items = extract_notice('공지', both, 'basic').items
+        new = [item.evidence for index, item in enumerate(items)
+               if item.kind == 'requirement' and str(index) not in existing_indexes(saved, items)]
+        self.assertEqual(new, ['팀원별 기여 내용을 보고서에 포함하세요.'])
+
+    @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
+    @patch('extraction.urlopen')
+    def test_optional_sentence_missed_by_groq_is_still_a_note(self, call):
+        body = ('보고서는 PDF로 제출하세요. / 배포 주소를 보고서 첫 페이지에 포함하세요. / '
+                '시연 영상은 선택 제출입니다')
+        output = {'items': [{'title': '보고서 PDF 제출', 'evidence': '보고서는 PDF로 제출하세요.', 'kind': 'requirement'},
+                            {'title': '배포 주소 포함', 'evidence': '배포 주소를 보고서 첫 페이지에 포함하세요.', 'kind': 'requirement'}],
+                  'deadline_evidence': ''}
+        call.return_value = io.BytesIO(json.dumps({'choices': [{'finish_reason': 'stop',
+                                                                'message': {'content': json.dumps(output)}}]}).encode())
+        result = extract_notice('과제', body, 'ai')
+        notes = [item for item in result.items if item.kind == 'note']
+        self.assertEqual([(item.title, item.evidence) for item in notes],
+                         [('시연 영상은 선택 제출입니다', '/ 시연 영상은 선택 제출입니다')])
+        self.assertEqual(len([item for item in result.items if item.kind == 'requirement']), 2)
