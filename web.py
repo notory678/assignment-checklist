@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from extraction import (Candidate, ExtractionError, ai_ready, groq_ready, extract_notice,
+from extraction import (Candidate, ExtractionError, ai_ready, existing_indexes, groq_ready, extract_notice,
                         recommend_pdf_pages)
 from pdf_input import MAX_PDF_BYTES, PdfInputError, evidence_page_numbers, extract_pdf, join_pages
 
@@ -118,12 +118,8 @@ def render_detail(request: Request, assignment: Assignment, *, title="", evidenc
 
 
 def existing_candidates(assignment_id: int, items) -> set[str]:
-    """Indexes of candidates already in the checklist (same quote and kind, or same title and kind)."""
-    saved = list_checklist(assignment_id)
-    quotes = {(item.kind, item.evidence.strip()) for item in saved if item.evidence.strip()}
-    titles = {(item.kind, item.title.strip().casefold()) for item in saved}
-    return {str(i) for i, item in enumerate(items)
-            if (item.kind, item.evidence.strip()) in quotes or (item.kind, item.title.strip().casefold()) in titles}
+    """Indexes of candidates already in the checklist (same kind and the same quote, list markers ignored)."""
+    return existing_indexes(list_checklist(assignment_id), items)
 
 
 def render_review(request: Request, assignment: Assignment, draft, *, titles=None, evidences=None,

@@ -121,3 +121,95 @@ class ExtractionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+REAL_NOTICE = '''1. 프로젝트 산출물 제출
+
+11월 13일(금)까지 이메일로 제출해 주세요.
+
+* 개발 문서: PDF로 변환하여 제출
+
+* 발표 자료: PDF로 변환하여 제출
+
+* 코드 repo: ZIP 파일로 첨부하거나, GitHub 저장소 주소를 이메일 본문에 기재
+
+2. 발표 일정
+
+11주차 (11월 16일 월요일)
+
+[추가 공지]
+안녕하세요 내일까지 제출하세요
+
+[추가 공지]
+PDF로 이름을 적어 제출하세요'''
+
+
+class RealNoticeTests(unittest.TestCase):
+    """Problems found by running a real course notice with two follow-up notices."""
+
+    def test_quote_key_ignores_list_markers_and_punctuation(self):
+        from extraction import quote_key
+        self.assertEqual(quote_key('* 개발 문서: PDF로 변환하여 제출'), quote_key('개발 문서: PDF로 변환하여 제출.'))
+        self.assertEqual(quote_key('1. 보고서 제출'), quote_key('“보고서 제출”'))
+        self.assertNotEqual(quote_key('11월 13일까지'), quote_key('1월 13일까지'))
+
+    def test_reextracted_items_with_list_marker_are_already_saved(self):
+        from extraction import existing_indexes
+        saved = [Candidate(title='개발 문서 제출', evidence='개발 문서: PDF로 변환하여 제출', kind='requirement'),
+                 Candidate(title='발표 자료 제출', evidence='발표 자료: PDF로 변환하여 제출', kind='requirement')]
+        again = [Candidate(title='개발 문서 제출 형식', evidence='* 개발 문서: PDF로 변환하여 제출', kind='requirement'),
+                 Candidate(title='발표 자료 제출 형식', evidence='* 발표 자료: PDF로 변환하여 제출', kind='requirement'),
+                 Candidate(title='이름 적어 PDF 제출', evidence='PDF로 이름을 적어 제출하세요', kind='requirement')]
+        self.assertEqual(existing_indexes(saved, again), {'0', '1'})
+
+    def test_one_saved_item_covers_one_condition_of_a_shared_quote(self):
+        from extraction import existing_indexes
+        quote = '보고서는 PDF로 제출하고, 배포 주소를 포함하세요.'
+        saved = [Candidate(title='보고서 PDF', evidence=quote, kind='requirement')]
+        again = [Candidate(title='보고서 PDF', evidence=quote, kind='requirement'),
+                 Candidate(title='배포 주소 포함', evidence=quote, kind='requirement')]
+        self.assertEqual(existing_indexes(saved, again), {'0'})
+
+    def test_duplicate_titles_on_one_quote_are_merged_but_split_conditions_stay(self):
+        output = ModelOutput(items=[
+            Candidate(title='개발 문서 제출', evidence='개발 문서: PDF로 변환하여 제출', kind='requirement'),
+            Candidate(title='개발 문서 제출 형식', evidence='* 개발 문서: PDF로 변환하여 제출', kind='requirement'),
+            Candidate(title='저장소 주소 기재', evidence='* 코드 repo: ZIP 파일로 첨부하거나, GitHub 저장소 주소를 이메일 본문에 기재', kind='requirement'),
+            Candidate(title='ZIP 첨부', evidence='* 코드 repo: ZIP 파일로 첨부하거나, GitHub 저장소 주소를 이메일 본문에 기재', kind='requirement'),
+        ], deadline_evidence='')
+        titles = [item.title for item in validate_output(output, REAL_NOTICE, 'ai').items if item.kind == 'requirement']
+        self.assertEqual(titles, ['개발 문서 제출', '저장소 주소 기재', 'ZIP 첨부'])
+
+    def test_numbered_heading_is_not_a_requirement(self):
+        from extraction import looks_like_heading
+        self.assertTrue(looks_like_heading('1. 프로젝트 산출물 제출'))
+        self.assertTrue(looks_like_heading('2. 발표 일정'))
+        self.assertFalse(looks_like_heading('1. 보고서는 PDF로 제출'))
+        self.assertFalse(looks_like_heading('1. 보고서 제출하세요'))
+        output = ModelOutput(items=[Candidate(title='산출물 제출', evidence='1. 프로젝트 산출물 제출', kind='requirement')],
+                             deadline_evidence='')
+        result = validate_output(output, REAL_NOTICE, 'ai')
+        self.assertEqual(result.items[0].kind, 'note')
+        self.assertTrue(any('소제목' in warning for warning in result.warnings))
+
+    def test_relative_deadline_is_flagged_not_converted(self):
+        output = ModelOutput(items=[], deadline_evidence='안녕하세요 내일까지 제출하세요')
+        result = validate_output(output, REAL_NOTICE, 'ai')
+        self.assertEqual(result.deadline_evidence, '')
+        notes = [item for item in result.items if item.kind == 'note']
+        self.assertEqual([item.evidence for item in notes], ['안녕하세요 내일까지 제출하세요'])
+        self.assertTrue(any('날짜 없이' in warning for warning in result.warnings))
+
+    def test_ai_quote_joined_across_lines_is_recovered(self):
+        output = ModelOutput(items=[Candidate(title='발표 자료', evidence='“발표 자료: PDF로 변환하여 제출.”', kind='requirement')],
+                             deadline_evidence='')
+        result = validate_output(output, REAL_NOTICE, 'ai')
+        self.assertEqual(result.items[0].evidence, '발표 자료: PDF로 변환하여 제출')
+
+    def test_basic_keeps_later_condition_with_a_taken_rule_name(self):
+        result = extract_notice('기말 프로젝트', REAL_NOTICE, 'basic')
+        evidences = [item.evidence for item in result.items if item.kind == 'requirement']
+        self.assertIn('PDF로 이름을 적어 제출하세요', evidences)
+        self.assertNotIn('1. 프로젝트 산출물 제출', evidences)
+        self.assertNotIn('11주차 (11월 16일 월요일)', evidences)
+        self.assertEqual(result.deadline_evidence, '11월 13일(금)까지 이메일로 제출해 주세요.')
